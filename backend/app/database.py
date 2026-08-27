@@ -17,8 +17,17 @@ class Base(DeclarativeBase):
 
 
 def get_db():
+    """Commit-on-success, rollback-on-exception. Routes just mutate objects
+    via the ORM and let the request boundary decide the transaction outcome
+    -- if a route (or a logic-layer function it calls) raises, nothing it
+    touched gets persisted.
+    """
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
