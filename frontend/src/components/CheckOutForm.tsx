@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
-import type { Equipment, EquipmentLoan } from "../types";
+import type { Employee, Equipment, EquipmentLoan, ProjectSummary } from "../types";
 
 function defaultReturnDate(): string {
   const d = new Date();
@@ -11,11 +11,17 @@ function defaultReturnDate(): string {
 export function CheckOutForm({
   equipmentId,
   equipmentName,
+  projectId,
+  projectName,
+  managerName,
   onSuccess,
   onCancel,
 }: {
   equipmentId?: number;
   equipmentName?: string;
+  projectId?: number;
+  projectName?: string;
+  managerName?: string;
   onSuccess: (loan: EquipmentLoan) => void;
   onCancel: () => void;
 }) {
@@ -23,9 +29,12 @@ export function CheckOutForm({
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<string>(
     equipmentId ? String(equipmentId) : ""
   );
-  const [project, setProject] = useState("");
-  const [managerName, setManagerName] = useState("");
-  const [borrowerName, setBorrowerName] = useState("");
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(
+    projectId ? String(projectId) : ""
+  );
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [expectedReturn, setExpectedReturn] = useState(defaultReturnDate());
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -34,24 +43,40 @@ export function CheckOutForm({
     if (!equipmentId) {
       api.listEquipment().then((all) => setAvailableEquipment(all.filter((e) => !e.is_checked_out)));
     }
-  }, [equipmentId]);
+    if (!projectId) {
+      api.listProjects().then(setProjects);
+    }
+    api.listEmployees().then((all) => setEmployees(all.filter((e) => e.active)));
+  }, [equipmentId, projectId]);
+
+  const derivedManagerName =
+    managerName ?? projects.find((p) => String(p.id) === selectedProjectId)?.manager_name ?? null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    const targetId = equipmentId ?? Number(selectedEquipmentId);
-    if (!targetId) {
+    const targetEquipmentId = equipmentId ?? Number(selectedEquipmentId);
+    const targetProjectId = projectId ?? Number(selectedProjectId);
+    const targetEmployeeId = Number(selectedEmployeeId);
+    if (!targetEquipmentId) {
       setError("Select which piece of equipment.");
+      return;
+    }
+    if (!targetProjectId) {
+      setError("Select which project.");
+      return;
+    }
+    if (!targetEmployeeId) {
+      setError("Select who's borrowing it.");
       return;
     }
 
     setSubmitting(true);
     try {
-      const loan = await api.checkOutEquipment(targetId, {
-        project: project.trim(),
-        manager_name: managerName.trim(),
-        borrower_name: borrowerName.trim(),
+      const loan = await api.checkOutEquipment(targetEquipmentId, {
+        project_id: targetProjectId,
+        borrower_employee_id: targetEmployeeId,
         expected_return_at: new Date(expectedReturn).toISOString(),
       });
       onSuccess(loan);
@@ -68,7 +93,10 @@ export function CheckOutForm({
 
   return (
     <form className="log-maintenance-form" onSubmit={handleSubmit}>
-      <h3>Check Out{equipmentName ? ` ${equipmentName}` : ""}</h3>
+      <h3>
+        Check Out{equipmentName ? ` ${equipmentName}` : ""}
+        {projectName ? ` for ${projectName}` : ""}
+      </h3>
 
       {!equipmentId && (
         <label>
@@ -86,37 +114,39 @@ export function CheckOutForm({
         </label>
       )}
 
-      <label>
-        For which project
-        <input
-          type="text"
-          value={project}
-          onChange={(e) => setProject(e.target.value)}
-          placeholder="e.g. House Build #123"
-          required
-        />
-      </label>
+      {!projectId && (
+        <label>
+          For which project
+          <select value={selectedProjectId} onChange={(e) => setSelectedProjectId(e.target.value)} required>
+            <option value="" disabled>
+              Select project
+            </option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <label>
         Manager
-        <input
-          type="text"
-          value={managerName}
-          onChange={(e) => setManagerName(e.target.value)}
-          placeholder="Who's signing off on this"
-          required
-        />
+        <div className="readonly-value">{derivedManagerName ?? "Unassigned"}</div>
       </label>
 
       <label>
-        Borrower
-        <input
-          type="text"
-          value={borrowerName}
-          onChange={(e) => setBorrowerName(e.target.value)}
-          placeholder="Who's taking it"
-          required
-        />
+        Borrowed by
+        <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} required>
+          <option value="" disabled>
+            Select employee
+          </option>
+          {employees.map((emp) => (
+            <option key={emp.id} value={emp.id}>
+              {emp.name}
+            </option>
+          ))}
+        </select>
       </label>
 
       <label>

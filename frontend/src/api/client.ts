@@ -1,4 +1,9 @@
 import type {
+  ActivityEvent,
+  DashboardSummary,
+  Employee,
+  EmployeeDetail,
+  EmployeeInput,
   Equipment,
   EquipmentInput,
   EquipmentLoan,
@@ -13,6 +18,11 @@ import type {
   PartRestock,
   PartRestockInput,
   PartsSpendReport,
+  ProjectDetail,
+  ProjectInput,
+  ProjectPartUsage,
+  ProjectPartUsageInput,
+  ProjectSummary,
   WearLimitReached,
 } from "../types";
 
@@ -84,4 +94,33 @@ export const api = {
 
   getMaintenanceCostReport: () => request<MaintenanceCostReport>("/reports/maintenance-cost"),
   getPartsSpendReport: () => request<PartsSpendReport>("/reports/parts-spend"),
+
+  listProjects: () => request<ProjectSummary[]>("/projects"),
+  getProject: (id: number) => request<ProjectDetail>(`/projects/${id}`),
+  createProject: (payload: ProjectInput) =>
+    request<ProjectSummary>("/projects", { method: "POST", body: JSON.stringify(payload) }),
+  updateProject: (id: number, payload: Partial<ProjectInput>) =>
+    request<ProjectDetail>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  getProjectActivity: (id: number) => request<ActivityEvent[]>(`/projects/${id}/activity`),
+  assignEmployeeToProject: (projectId: number, employeeId: number) =>
+    request<{ project_id: number; employee_id: number }>(`/projects/${projectId}/employees`, {
+      method: "POST",
+      body: JSON.stringify({ employee_id: employeeId }),
+    }),
+  useProjectParts: (projectId: number, payload: ProjectPartUsageInput) =>
+    request<ProjectPartUsage[]>(`/projects/${projectId}/parts-usage`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  listEmployees: () => request<Employee[]>("/employees"),
+  getEmployee: (id: number) => request<EmployeeDetail>(`/employees/${id}`),
+  createEmployee: (payload: EmployeeInput) =>
+    request<Employee>("/employees", { method: "POST", body: JSON.stringify(payload) }),
+  updateEmployee: (id: number, payload: Partial<EmployeeInput>) =>
+    request<Employee>(`/employees/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+
+  listActivity: (limit = 50) => request<ActivityEvent[]>(`/activity?limit=${limit}`),
+
+  getDashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
 };

@@ -90,8 +90,15 @@ export function EquipmentDetailPage() {
 
       {activeLoan && (
         <div className="loan-banner">
-          Checked out to <strong>{activeLoan.borrower_name}</strong> for <strong>{activeLoan.project}</strong>,
-          due back {formatDate(activeLoan.expected_return_at)} (manager: {activeLoan.manager_name}).
+          Checked out to <strong>{activeLoan.borrower_name}</strong> for{" "}
+          {activeLoan.project_id ? (
+            <Link to={`/projects/${activeLoan.project_id}`}>
+              <strong>{activeLoan.project}</strong>
+            </Link>
+          ) : (
+            <strong>{activeLoan.project}</strong>
+          )}
+          , due back {formatDate(activeLoan.expected_return_at)} (manager: {activeLoan.manager_name}).
         </div>
       )}
 
@@ -195,7 +202,9 @@ export function EquipmentDetailPage() {
             <tbody>
               {loans.map((loan) => (
                 <tr key={loan.id}>
-                  <td>{loan.project}</td>
+                  <td>
+                    {loan.project_id ? <Link to={`/projects/${loan.project_id}`}>{loan.project}</Link> : loan.project}
+                  </td>
                   <td>{loan.borrower_name}</td>
                   <td>{formatDateTime(loan.checked_out_at)}</td>
                   <td>{formatDate(loan.expected_return_at)}</td>

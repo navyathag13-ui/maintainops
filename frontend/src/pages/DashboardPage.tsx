@@ -1,136 +1,171 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { ProjectCard } from "../components/ProjectCard";
 import { AlertIcon, BoxIcon, TrashIcon } from "../components/icons";
-import { StatCard } from "../components/StatCard";
-import type { LowStockPart, OverdueEquipment, WearLimitReached } from "../types";
+import type { DashboardSummary } from "../types";
+import { formatDate, formatDateTime } from "../utils";
+
+function AttentionPanel({
+  icon,
+  title,
+  count,
+  emptyLabel,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  count: number;
+  emptyLabel: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`attention-panel ${count > 0 ? "attention-panel-warning" : ""}`}>
+      <div className="attention-panel-header">
+        <span className="attention-panel-icon">{icon}</span>
+        <span className="attention-panel-count">{count}</span>
+        <span className="attention-panel-title">{title}</span>
+      </div>
+      {count === 0 ? <p className="subtitle" style={{ margin: 0 }}>{emptyLabel}</p> : <ul className="attention-list">{children}</ul>}
+    </div>
+  );
+}
 
 export function DashboardPage() {
-  const [overdue, setOverdue] = useState<OverdueEquipment[] | null>(null);
-  const [lowStock, setLowStock] = useState<LowStockPart[] | null>(null);
-  const [discardRecommended, setDiscardRecommended] = useState<WearLimitReached[] | null>(null);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
 
   useEffect(() => {
-    api.getOverdueMaintenance().then(setOverdue);
-    api.getLowStock().then(setLowStock);
-    api.getDiscardRecommended().then(setDiscardRecommended);
+    api.getDashboardSummary().then(setSummary);
   }, []);
 
-  const allClear =
-    overdue && lowStock && discardRecommended && overdue.length === 0 && lowStock.length === 0 && discardRecommended.length === 0;
+  if (!summary) return <p>Loading...</p>;
+
+  const maxLocationCount = Math.max(1, ...summary.equipment_by_location.map((l) => l.count));
 
   return (
     <div>
       <h1>Dashboard</h1>
-      <p className="subtitle">What needs attention right now.</p>
-      <div className="stat-grid">
-        <StatCard
-          label="Overdue equipment"
-          value={overdue ? overdue.length : "..."}
-          tone={overdue && overdue.length > 0 ? "warning" : "neutral"}
+      <p className="subtitle">What needs attention, what's running, and what happened.</p>
+
+      <h2 style={{ marginTop: 0 }}>Requires Attention</h2>
+      <div className="attention-grid">
+        <AttentionPanel
           icon={<AlertIcon />}
-        />
-        <StatCard
-          label="Low-stock parts"
-          value={lowStock ? lowStock.length : "..."}
-          tone={lowStock && lowStock.length > 0 ? "warning" : "neutral"}
+          title="Overdue Equipment"
+          count={summary.overdue_equipment.length}
+          emptyLabel="Nothing overdue."
+        >
+          {summary.overdue_equipment.map((eq) => (
+            <li key={eq.id}>
+              <Link to={`/equipment/${eq.id}`}>
+                <span>{eq.name}</span>
+                <span className="attention-list-detail">{Number(eq.hours_overdue).toFixed(0)} hrs overdue</span>
+              </Link>
+            </li>
+          ))}
+        </AttentionPanel>
+
+        <AttentionPanel
           icon={<BoxIcon />}
-        />
-        <StatCard
-          label="Discard recommended"
-          value={discardRecommended ? discardRecommended.length : "..."}
-          tone={discardRecommended && discardRecommended.length > 0 ? "warning" : "neutral"}
+          title="Low Stock Parts"
+          count={summary.low_stock_parts.length}
+          emptyLabel="Nothing low on stock."
+        >
+          {summary.low_stock_parts.map((part) => (
+            <li key={part.id}>
+              <Link to="/parts">
+                <span>{part.name}</span>
+                <span className="attention-list-detail">
+                  {part.quantity_on_hand} left, reorder at {part.reorder_threshold}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </AttentionPanel>
+
+        <AttentionPanel
           icon={<TrashIcon />}
-        />
+          title="Discard Recommended"
+          count={summary.discard_recommended.length}
+          emptyLabel="Nothing to discard."
+        >
+          {summary.discard_recommended.map((eq) => (
+            <li key={eq.id}>
+              <Link to={`/equipment/${eq.id}`}>
+                <span>{eq.name}</span>
+                <span className="attention-list-detail">
+                  {eq.usage_count} / {eq.max_usage_count} uses
+                </span>
+              </Link>
+            </li>
+          ))}
+        </AttentionPanel>
       </div>
 
-      {overdue && overdue.length > 0 && (
-        <section>
-          <h2>Overdue equipment</h2>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Location</th>
-                  <th>Hours overdue</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overdue.map((eq) => (
-                  <tr key={eq.id}>
-                    <td>{eq.name}</td>
-                    <td>{eq.location}</td>
-                    <td>{Number(eq.hours_overdue).toFixed(1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+      <h2>Active Projects</h2>
+      {summary.active_projects.length === 0 ? (
+        <p className="subtitle">No active projects right now.</p>
+      ) : (
+        <div className="project-grid">
+          {summary.active_projects.map((p) => (
+            <ProjectCard key={p.id} project={p} />
+          ))}
+        </div>
       )}
 
-      {lowStock && lowStock.length > 0 && (
+      <div className="dashboard-two-col">
         <section>
-          <h2>Low-stock parts</h2>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>SKU</th>
-                  <th>On hand</th>
-                  <th>Reorder threshold</th>
-                  <th>Urgency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lowStock.map((part) => (
-                  <tr key={part.id}>
-                    <td>{part.name}</td>
-                    <td>{part.sku}</td>
-                    <td>{part.quantity_on_hand}</td>
-                    <td>{part.reorder_threshold}</td>
-                    <td style={{ textTransform: "capitalize" }}>{part.urgency}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <h2>Equipment by Location</h2>
+          <div className="chart-card location-bars">
+            {summary.equipment_by_location.map((loc) => (
+              <div className="location-bar-row" key={loc.location}>
+                <span className="location-bar-label">{loc.location}</span>
+                <div className="location-bar-track">
+                  <div
+                    className="location-bar-fill"
+                    style={{ width: `${(loc.count / maxLocationCount) * 100}%` }}
+                  />
+                </div>
+                <span className="location-bar-count">{loc.count}</span>
+              </div>
+            ))}
           </div>
         </section>
-      )}
 
-      {discardRecommended && discardRecommended.length > 0 && (
         <section>
-          <h2>Discard recommended</h2>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Current location</th>
-                  <th>Uses</th>
-                </tr>
-              </thead>
-              <tbody>
-                {discardRecommended.map((eq) => (
-                  <tr key={eq.id}>
-                    <td>{eq.name}</td>
-                    <td>{eq.current_location}</td>
-                    <td>
-                      {eq.usage_count} / {eq.max_usage_count}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <h2>Due Soon</h2>
+          {summary.due_soon.length === 0 ? (
+            <p className="subtitle">Nothing due back soon.</p>
+          ) : (
+            <div className="chart-card due-soon-list">
+              {summary.due_soon.map((item) => (
+                <Link to={`/equipment/${item.equipment_id}`} className="due-soon-row" key={item.loan_id}>
+                  <div>
+                    <strong>{item.equipment_name}</strong>
+                    <div className="location-bar-label">{item.project_name}</div>
+                  </div>
+                  <span className={`badge badge-${item.is_overdue_for_return ? "overdue" : "due-soon"}`}>
+                    {item.is_overdue_for_return ? "Overdue" : formatDate(item.expected_return_at)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
         </section>
-      )}
+      </div>
 
-      {allClear && (
-        <p className="subtitle" style={{ marginTop: "1.5rem" }}>
-          Nothing overdue, nothing low on stock, nothing to discard. Nice work.
-        </p>
+      <h2>Recent Activity</h2>
+      {summary.recent_activity.length === 0 ? (
+        <p className="subtitle">Nothing has happened yet.</p>
+      ) : (
+        <div className="chart-card activity-feed">
+          {summary.recent_activity.map((event) => (
+            <div className="activity-row" key={event.id}>
+              <span className="activity-row-time">{formatDateTime(event.occurred_at)}</span>
+              <span>{event.description}</span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
