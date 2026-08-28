@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { EmptyState } from "../components/EmptyState";
 import { LowStockBadge } from "../components/LowStockBadge";
 import type { Part } from "../types";
 import { formatCurrency } from "../utils";
@@ -14,35 +15,43 @@ export function PartsPage() {
   return (
     <div>
       <h1>Parts Inventory</h1>
+      <p className="subtitle">Stock on hand, and what needs reordering.</p>
       {parts === null ? (
         <p>Loading...</p>
+      ) : parts.length === 0 ? (
+        <EmptyState
+          title="No parts in inventory yet"
+          description="Add parts through the API (or via /docs) before logging maintenance that consumes them."
+        />
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>SKU</th>
-              <th>Quantity on hand</th>
-              <th>Reorder threshold</th>
-              <th>Unit cost</th>
-              <th>Stock</th>
-            </tr>
-          </thead>
-          <tbody>
-            {parts.map((part) => (
-              <tr key={part.id}>
-                <td>{part.name}</td>
-                <td>{part.sku}</td>
-                <td>{part.quantity_on_hand}</td>
-                <td>{part.reorder_threshold}</td>
-                <td>{formatCurrency(part.unit_cost)}</td>
-                <td>
-                  <LowStockBadge isLowStock={part.is_low_stock} />
-                </td>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>SKU</th>
+                <th>Quantity on hand</th>
+                <th>Reorder threshold</th>
+                <th>Unit cost</th>
+                <th>Stock</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {parts.map((part) => (
+                <tr key={part.id}>
+                  <td>{part.name}</td>
+                  <td>{part.sku}</td>
+                  <td>{part.quantity_on_hand}</td>
+                  <td>{part.reorder_threshold}</td>
+                  <td>{formatCurrency(part.unit_cost)}</td>
+                  <td>
+                    <LowStockBadge isLowStock={part.is_low_stock} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

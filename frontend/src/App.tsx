@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from "react-router-dom";
+import { WrenchIcon } from "./components/icons";
 import { DashboardPage } from "./pages/DashboardPage";
 import { EquipmentDetailPage } from "./pages/EquipmentDetailPage";
 import { EquipmentListPage } from "./pages/EquipmentListPage";
@@ -8,7 +9,12 @@ function App() {
   return (
     <div className="app">
       <nav className="app-nav">
-        <span className="app-title">MaintainOps</span>
+        <span className="app-brand">
+          <WrenchIcon />
+          <span className="app-title">
+            Maintain<span>Ops</span>
+          </span>
+        </span>
         <NavLink to="/" end>
           Dashboard
         </NavLink>

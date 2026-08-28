@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
+import { EmptyState } from "../components/EmptyState";
 import { LogMaintenanceForm } from "../components/LogMaintenanceForm";
 import { MaintenanceStatusBadge } from "../components/MaintenanceStatusBadge";
+import { Toast } from "../components/Toast";
 import type { Equipment, MaintenanceLog } from "../types";
 import { formatDateTime, formatHours } from "../utils";
 
@@ -12,6 +14,7 @@ export function EquipmentDetailPage() {
   const [equipment, setEquipment] = useState<Equipment | null>(null);
   const [history, setHistory] = useState<MaintenanceLog[] | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   function refresh() {
     api.getEquipment(equipmentId).then(setEquipment);
@@ -27,9 +30,9 @@ export function EquipmentDetailPage() {
 
   return (
     <div>
-      <p>
-        <Link to="/equipment">&larr; Back to equipment</Link>
-      </p>
+      <Link to="/equipment" className="back-link">
+        &larr; Back to equipment
+      </Link>
       <h1>{equipment.name}</h1>
       <dl className="equipment-detail-grid">
         <dt>Type</dt>
@@ -59,6 +62,7 @@ export function EquipmentDetailPage() {
           onSuccess={() => {
             setShowForm(false);
             refresh();
+            setToast(`Maintenance logged for ${equipment.name}.`);
           }}
         />
       )}
@@ -67,33 +71,40 @@ export function EquipmentDetailPage() {
       {history === null ? (
         <p>Loading...</p>
       ) : history.length === 0 ? (
-        <p>No maintenance logged yet.</p>
+        <EmptyState
+          title="No maintenance logged yet"
+          description="Once you log the first service, it'll show up here with a full parts trail."
+        />
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Performed at</th>
-              <th>Description</th>
-              <th>Parts used</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history.map((log) => (
-              <tr key={log.id}>
-                <td>{formatDateTime(log.performed_at)}</td>
-                <td>{log.description}</td>
-                <td>
-                  {log.parts_used.length === 0
-                    ? "--"
-                    : log.parts_used
-                        .map((pu) => `${pu.part_name ?? `#${pu.part_id}`} x${pu.quantity}`)
-                        .join(", ")}
-                </td>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Performed at</th>
+                <th>Description</th>
+                <th>Parts used</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {history.map((log) => (
+                <tr key={log.id}>
+                  <td>{formatDateTime(log.performed_at)}</td>
+                  <td>{log.description}</td>
+                  <td>
+                    {log.parts_used.length === 0
+                      ? "--"
+                      : log.parts_used
+                          .map((pu) => `${pu.part_name ?? `#${pu.part_id}`} x${pu.quantity}`)
+                          .join(", ")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
   );
 }
