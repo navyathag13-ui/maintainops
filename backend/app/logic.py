@@ -5,7 +5,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Equipment, EquipmentLoan, MaintenanceLog, Part, PartUsed
+from .models import Equipment, EquipmentLoan, MaintenanceLog, Part, PartRestock, PartUsed
 
 
 def is_equipment_overdue(equipment: Equipment) -> bool:
@@ -176,7 +176,13 @@ def record_maintenance(
     for usage in parts_used:
         part = parts_by_id[usage.part_id]
         part.quantity_on_hand -= usage.quantity
-        log.parts_used.append(PartUsed(part_id=usage.part_id, quantity=usage.quantity))
+        log.parts_used.append(
+            PartUsed(
+                part_id=usage.part_id,
+                quantity=usage.quantity,
+                unit_cost_at_time=part.unit_cost,
+            )
+        )
 
     equipment.last_maintenance_usage_hours = equipment.usage_hours
 
@@ -244,3 +250,43 @@ def return_equipment(db: Session, loan_id: int) -> EquipmentLoan:
 
     db.flush()
     return loan
+
+
+def restock_part(
+    db: Session,
+    part_id: int,
+    quantity: int,
+    unit_cost,
+    supplier: str,
+    notes: str = "",
+) -> PartRestock:
+    """Receive a shipment: adds to stock and records what was actually paid.
+
+    Part.unit_cost is updated to this shipment's price -- it's meant to
+    reflect the current/latest price, used as the default for the next
+    maintenance log's cost snapshot. Past MaintenanceLog cost snapshots
+    (PartUsed.unit_cost_at_time) are untouched, since they already captured
+    whatever the price was at the time.
+    """
+    if quantity <= 0:
+        raise InvalidQuantityError(part_id, quantity)
+
+    part = db.execute(
+        select(Part).where(Part.id == part_id).with_for_update()
+    ).scalar_one_or_none()
+    if part is None:
+        raise PartNotFoundError(part_id)
+
+    restock = PartRestock(
+        quantity=quantity,
+        unit_cost=unit_cost,
+        supplier=supplier,
+        notes=notes,
+        restocked_at=datetime.now(timezone.utc),
+    )
+    part.restocks.append(restock)
+    part.quantity_on_hand += quantity
+    part.unit_cost = unit_cost
+
+    db.flush()
+    return restock

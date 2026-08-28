@@ -68,6 +68,9 @@ class Part(Base):
     is_critical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     usages: Mapped[list["PartUsed"]] = relationship(back_populates="part")
+    restocks: Mapped[list["PartRestock"]] = relationship(
+        back_populates="part", cascade="all, delete-orphan"
+    )
 
 
 class MaintenanceLog(Base):
@@ -92,6 +95,11 @@ class PartUsed(Base):
     )
     part_id: Mapped[int] = mapped_column(ForeignKey("parts.id"), primary_key=True)
     quantity: Mapped[int] = mapped_column(nullable=False)
+    # Snapshot of Part.unit_cost at the moment this maintenance was logged.
+    # Cost reports read this, not the part's current price -- otherwise a
+    # price change today would silently rewrite the cost of a job from six
+    # months ago.
+    unit_cost_at_time: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
 
     maintenance_log: Mapped["MaintenanceLog"] = relationship(back_populates="parts_used")
     part: Mapped["Part"] = relationship(back_populates="usages")
@@ -114,3 +122,24 @@ class EquipmentLoan(Base):
     returned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     equipment: Mapped["Equipment"] = relationship(back_populates="loans")
+
+
+class PartRestock(Base):
+    """One inbound shipment. Stock only ever went down (consumed by
+    maintenance) before this existed -- this is the other half of the
+    inventory story: how it came back, when, from whom, and at what price.
+    unit_cost here is what was actually paid for this shipment; Part.unit_cost
+    is updated to match, so future maintenance cost snapshots reflect the
+    latest price without rewriting history."""
+
+    __tablename__ = "part_restocks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id"), nullable=False)
+    quantity: Mapped[int] = mapped_column(nullable=False)
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    supplier: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    restocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    part: Mapped["Part"] = relationship(back_populates="restocks")

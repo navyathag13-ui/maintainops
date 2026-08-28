@@ -18,9 +18,11 @@ from app.logic import (
     is_part_low_stock,
     part_urgency,
     record_maintenance,
+    restock_part,
     return_equipment,
 )
 from app.models import Equipment, EquipmentLoan, MaintenanceLog, Part
+from app.reports import maintenance_cost_report, parts_spend_report
 
 
 def make_equipment(**overrides) -> Equipment:
@@ -542,3 +544,209 @@ class TestCheckOutAndReturnEquipment:
 
         assert equipment.usage_count == 5
         assert is_equipment_at_wear_limit(equipment) is True
+
+
+# --- record_maintenance cost snapshot ----------------------------------------
+
+
+class TestMaintenanceCostSnapshot:
+    def test_part_used_snapshots_price_at_time_of_service(self, db_session):
+        equipment = make_equipment()
+        part = make_part(quantity_on_hand=10, unit_cost=12.50)
+        db_session.add_all([equipment, part])
+        db_session.flush()
+
+        log = record_maintenance(
+            db_session,
+            equipment_id=equipment.id,
+            performed_at=datetime.now(timezone.utc),
+            description="Replaced filter",
+            parts_used=[PartUsageInput(part_id=part.id, quantity=2)],
+        )
+
+        assert log.parts_used[0].unit_cost_at_time == 12.50
+
+    def test_later_price_change_does_not_rewrite_history(self, db_session):
+        equipment = make_equipment()
+        part = make_part(quantity_on_hand=10, unit_cost=12.50)
+        db_session.add_all([equipment, part])
+        db_session.flush()
+
+        log = record_maintenance(
+            db_session,
+            equipment_id=equipment.id,
+            performed_at=datetime.now(timezone.utc),
+            description="Replaced filter",
+            parts_used=[PartUsageInput(part_id=part.id, quantity=2)],
+        )
+        original_snapshot = log.parts_used[0].unit_cost_at_time
+
+        # Price goes up after the fact (e.g. a new shipment came in pricier).
+        part.unit_cost = 20.00
+        db_session.flush()
+
+        assert log.parts_used[0].unit_cost_at_time == original_snapshot == 12.50
+
+
+# --- restock_part --------------------------------------------------------------
+
+
+class TestRestockPart:
+    def test_happy_path_increments_stock_and_updates_price(self, db_session):
+        part = make_part(quantity_on_hand=1, unit_cost=12.50)
+        db_session.add(part)
+        db_session.flush()
+
+        restock = restock_part(
+            db_session,
+            part_id=part.id,
+            quantity=20,
+            unit_cost=13.75,
+            supplier="Acme Supply Co",
+        )
+
+        assert restock.quantity == 20
+        assert restock.unit_cost == 13.75
+        assert part.quantity_on_hand == 21
+        assert part.unit_cost == 13.75
+
+    def test_zero_quantity_rejected(self, db_session):
+        part = make_part(quantity_on_hand=1)
+        db_session.add(part)
+        db_session.flush()
+
+        with pytest.raises(InvalidQuantityError):
+            restock_part(db_session, part_id=part.id, quantity=0, unit_cost=12.50, supplier="Acme")
+        assert part.quantity_on_hand == 1
+
+    def test_negative_quantity_rejected(self, db_session):
+        part = make_part(quantity_on_hand=1)
+        db_session.add(part)
+        db_session.flush()
+
+        with pytest.raises(InvalidQuantityError):
+            restock_part(db_session, part_id=part.id, quantity=-5, unit_cost=12.50, supplier="Acme")
+        assert part.quantity_on_hand == 1
+
+    def test_unknown_part_raises(self, db_session):
+        with pytest.raises(PartNotFoundError):
+            restock_part(db_session, part_id=999, quantity=10, unit_cost=12.50, supplier="Acme")
+
+    def test_restock_does_not_touch_past_maintenance_cost_snapshots(self, db_session):
+        equipment = make_equipment()
+        part = make_part(quantity_on_hand=10, unit_cost=12.50)
+        db_session.add_all([equipment, part])
+        db_session.flush()
+
+        log = record_maintenance(
+            db_session,
+            equipment_id=equipment.id,
+            performed_at=datetime.now(timezone.utc),
+            description="Replaced filter",
+            parts_used=[PartUsageInput(part_id=part.id, quantity=1)],
+        )
+
+        restock_part(db_session, part_id=part.id, quantity=50, unit_cost=99.00, supplier="Acme")
+
+        assert log.parts_used[0].unit_cost_at_time == 12.50
+        assert part.unit_cost == 99.00
+
+
+# --- reports.maintenance_cost_report ------------------------------------------
+
+
+class TestMaintenanceCostReport:
+    def test_no_logs_gives_zero_report(self, db_session):
+        report = maintenance_cost_report(db_session)
+        assert report.total_cost == 0
+        assert report.by_equipment == []
+        assert report.by_month == []
+
+    def test_aggregates_across_equipment_and_month(self, db_session):
+        equipment_a = make_equipment(name="Pump 1")
+        equipment_b = make_equipment(name="Pump 2")
+        part = make_part(quantity_on_hand=100, unit_cost=10.00)
+        db_session.add_all([equipment_a, equipment_b, part])
+        db_session.flush()
+
+        record_maintenance(
+            db_session,
+            equipment_id=equipment_a.id,
+            performed_at=datetime(2026, 6, 15, tzinfo=timezone.utc),
+            description="Service 1",
+            parts_used=[PartUsageInput(part_id=part.id, quantity=2)],  # $20
+        )
+        record_maintenance(
+            db_session,
+            equipment_id=equipment_a.id,
+            performed_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            description="Service 2",
+            parts_used=[PartUsageInput(part_id=part.id, quantity=1)],  # $10
+        )
+        record_maintenance(
+            db_session,
+            equipment_id=equipment_b.id,
+            performed_at=datetime(2026, 6, 20, tzinfo=timezone.utc),
+            description="Service 3",
+            parts_used=[PartUsageInput(part_id=part.id, quantity=5)],  # $50
+        )
+
+        report = maintenance_cost_report(db_session)
+
+        assert report.total_cost == 80
+        # Sorted by total_cost descending -> equipment_b ($50) before equipment_a ($30)
+        assert report.by_equipment[0].equipment_name == "Pump 2"
+        assert report.by_equipment[0].total_cost == 50
+        assert report.by_equipment[0].maintenance_count == 1
+        assert report.by_equipment[1].equipment_name == "Pump 1"
+        assert report.by_equipment[1].total_cost == 30
+        assert report.by_equipment[1].maintenance_count == 2
+
+        by_month = {m.month: m.total_cost for m in report.by_month}
+        assert by_month == {"2026-06": 70, "2026-07": 10}
+
+    def test_maintenance_log_with_no_parts_contributes_zero_cost(self, db_session):
+        equipment = make_equipment()
+        db_session.add(equipment)
+        db_session.flush()
+
+        record_maintenance(
+            db_session,
+            equipment_id=equipment.id,
+            performed_at=datetime.now(timezone.utc),
+            description="Visual inspection only",
+            parts_used=[],
+        )
+
+        report = maintenance_cost_report(db_session)
+        assert report.total_cost == 0
+        assert report.by_equipment[0].maintenance_count == 1
+        assert report.by_equipment[0].total_cost == 0
+
+
+# --- reports.parts_spend_report ------------------------------------------------
+
+
+class TestPartsSpendReport:
+    def test_no_restocks_gives_zero_report(self, db_session):
+        report = parts_spend_report(db_session)
+        assert report.total_cost == 0
+        assert report.by_part == []
+        assert report.by_month == []
+
+    def test_aggregates_across_parts_and_month(self, db_session):
+        part_a = make_part(name="Filter", sku="FLT-001", quantity_on_hand=0)
+        part_b = make_part(name="Belt", sku="BLT-001", quantity_on_hand=0)
+        db_session.add_all([part_a, part_b])
+        db_session.flush()
+
+        restock_part(db_session, part_id=part_a.id, quantity=10, unit_cost=5.00, supplier="Acme")
+        restock_part(db_session, part_id=part_b.id, quantity=4, unit_cost=25.00, supplier="Acme")
+
+        report = parts_spend_report(db_session)
+
+        assert report.total_cost == 150  # 10*5 + 4*25
+        assert report.by_part[0].part_name == "Belt"
+        assert report.by_part[0].total_cost == 100
+        assert report.by_part[1].part_name == "Filter"
+        assert report.by_part[1].total_cost == 50
