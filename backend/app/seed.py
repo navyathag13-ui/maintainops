@@ -43,7 +43,7 @@ from .models import (
     ProjectStatus,
 )
 
-HOME_LOCATION = "Garage / Storage"
+STORAGE_BAYS = [f"Garage Storage #{i}" for i in range(1, 7)]
 
 
 def is_seeded(db: Session) -> bool:
@@ -170,12 +170,13 @@ def seed_demo_data(db: Session) -> None:
             fraction_of_interval = rng.uniform(0.05, 0.75)  # healthy
         usage_hours = Decimal(str(round(interval * fraction_of_interval, 1)))
         usage_count = rng.randint(0, max_usage - 3) if max_usage else 0
+        home_location = rng.choice(STORAGE_BAYS)
 
         eq = Equipment(
             name=name,
             type=type_,
-            location=HOME_LOCATION,
-            current_location=HOME_LOCATION,
+            location=home_location,
+            current_location=home_location,
             status=EquipmentStatus.OPERATIONAL,
             usage_hours=usage_hours,
             last_maintenance_usage_hours=Decimal("0"),

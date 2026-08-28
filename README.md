@@ -56,7 +56,7 @@ right shelf. So checking equipment out is a first-class action, not an afterthou
 > **Borrowed by:** Priya Shah
 > **Expected return:** 9/4/2026
 
-Hit submit and the equipment's `current_location` moves from *Garage / Storage* to *House #1*
+Hit submit and the equipment's `current_location` moves from *Garage Storage #3* to *House #1*
 immediately — the equipment list, the equipment's own detail page, the project it now belongs
 to, the borrower's employee page, and the dashboard all reflect it without anyone touching a
 spreadsheet. Returning it moves the location back and closes out the loan.
@@ -166,6 +166,14 @@ same rule: Active Projects as cards with real computed metrics (no project card 
 that isn't backed by an actual query), a compact Equipment by Location bar list instead of a
 pie chart nobody needed, Due Soon sorted by nearest return with overdue-for-return visually
 distinct from merely-due-soon, and a Recent Activity feed at the bottom.
+
+Equipment's home location got the same treatment as manager/borrower — "Home location" on the
+New Equipment form is a dropdown of named storage bays (`Garage Storage #1` through `#6`), not
+free text, so equipment doesn't end up split across `Garage`, `garage storage`, and `Garage
+Storage 1` as three different locations that all mean the same shelf. The seeded equipment is
+distributed across the same bays for the same reason: piling everything into one generic
+"Garage / Storage" bucket made the Equipment by Location panel show one giant bar and nothing
+else worth looking at.
 
 ![Dashboard — requires attention, active projects, and what happened, all live](docs/screenshots/dashboard.png)
 

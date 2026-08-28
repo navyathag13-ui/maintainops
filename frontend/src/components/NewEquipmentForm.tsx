@@ -2,6 +2,8 @@ import { useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Equipment, EquipmentStatus } from "../types";
 
+const STORAGE_BAYS = Array.from({ length: 6 }, (_, i) => `Garage Storage #${i + 1}`);
+
 export function NewEquipmentForm({
   onSuccess,
   onCancel,
@@ -11,7 +13,7 @@ export function NewEquipmentForm({
 }) {
   const [name, setName] = useState("");
   const [type, setType] = useState("");
-  const [location, setLocation] = useState("");
+  const [location, setLocation] = useState(STORAGE_BAYS[0]);
   const [status, setStatus] = useState<EquipmentStatus>("operational");
   const [usageHours, setUsageHours] = useState("0");
   const [intervalHours, setIntervalHours] = useState("");
@@ -58,13 +60,13 @@ export function NewEquipmentForm({
 
       <label>
         Home location
-        <input
-          type="text"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          placeholder="e.g. Garage Back Storage 3"
-          required
-        />
+        <select value={location} onChange={(e) => setLocation(e.target.value)} required>
+          {STORAGE_BAYS.map((bay) => (
+            <option key={bay} value={bay}>
+              {bay}
+            </option>
+          ))}
+        </select>
       </label>
 
       <label>
