@@ -428,6 +428,29 @@ button:disabled {
   color: var(--text);
 }
 
+.location-away {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.loan-banner {
+  background: var(--due-soft);
+  border: 1px solid rgba(180, 83, 9, 0.25);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.1rem;
+  max-width: 480px;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.loan-banner strong {
+  color: var(--due);
+}
+
 /* --- Empty states --- */
 
 .empty-state {

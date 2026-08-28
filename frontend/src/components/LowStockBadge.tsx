@@ -1,4 +1,17 @@
-export function LowStockBadge({ isLowStock }: { isLowStock: boolean }) {
-  if (!isLowStock) return <span className="badge badge-ok">In stock</span>;
-  return <span className="badge badge-overdue">Low stock</span>;
+import type { PartUrgency } from "../types";
+
+const LABELS: Record<PartUrgency, string> = {
+  none: "In stock",
+  watch: "Watch",
+  urgent: "Urgent",
+};
+
+const LEVEL: Record<PartUrgency, string> = {
+  none: "ok",
+  watch: "due-soon",
+  urgent: "overdue",
+};
+
+export function LowStockBadge({ urgency }: { urgency: PartUrgency }) {
+  return <span className={`badge badge-${LEVEL[urgency]}`}>{LABELS[urgency]}</span>;
 }

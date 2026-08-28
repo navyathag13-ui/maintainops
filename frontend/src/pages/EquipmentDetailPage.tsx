@@ -1,24 +1,30 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
+import { CheckOutForm } from "../components/CheckOutForm";
 import { EmptyState } from "../components/EmptyState";
 import { LogMaintenanceForm } from "../components/LogMaintenanceForm";
 import { MaintenanceStatusBadge } from "../components/MaintenanceStatusBadge";
 import { Toast } from "../components/Toast";
-import type { Equipment, MaintenanceLog } from "../types";
-import { formatDateTime, formatHours } from "../utils";
+import { WearLimitBadge } from "../components/WearLimitBadge";
+import type { Equipment, EquipmentLoan, MaintenanceLog } from "../types";
+import { formatDate, formatDateTime, formatHours } from "../utils";
 
 export function EquipmentDetailPage() {
   const { id } = useParams();
   const equipmentId = Number(id);
   const [equipment, setEquipment] = useState<Equipment | null>(null);
   const [history, setHistory] = useState<MaintenanceLog[] | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  const [loans, setLoans] = useState<EquipmentLoan[] | null>(null);
+  const [showMaintenanceForm, setShowMaintenanceForm] = useState(false);
+  const [showCheckoutForm, setShowCheckoutForm] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [returning, setReturning] = useState(false);
 
   function refresh() {
     api.getEquipment(equipmentId).then(setEquipment);
     api.getEquipmentHistory(equipmentId).then(setHistory);
+    api.getEquipmentLoans(equipmentId).then(setLoans);
   }
 
   useEffect(() => {
@@ -27,6 +33,20 @@ export function EquipmentDetailPage() {
   }, [equipmentId]);
 
   if (!equipment) return <p>Loading...</p>;
+
+  const activeLoan = loans?.find((l) => l.returned_at === null) ?? null;
+
+  async function handleReturn() {
+    if (!activeLoan) return;
+    setReturning(true);
+    try {
+      await api.returnLoan(activeLoan.id);
+      setToast(`Returned -- back at ${equipment!.location}.`);
+      refresh();
+    } finally {
+      setReturning(false);
+    }
+  }
 
   return (
     <div>
@@ -37,8 +57,10 @@ export function EquipmentDetailPage() {
       <dl className="equipment-detail-grid">
         <dt>Type</dt>
         <dd>{equipment.type}</dd>
-        <dt>Location</dt>
+        <dt>Home location</dt>
         <dd>{equipment.location}</dd>
+        <dt>Current location</dt>
+        <dd>{equipment.current_location}</dd>
         <dt>Status</dt>
         <dd>{equipment.status}</dd>
         <dt>Usage hours</dt>
@@ -51,18 +73,54 @@ export function EquipmentDetailPage() {
         <dd>
           <MaintenanceStatusBadge equipment={equipment} />
         </dd>
+        {equipment.max_usage_count !== null && (
+          <>
+            <dt>Wear limit</dt>
+            <dd>
+              <WearLimitBadge usageCount={equipment.usage_count} maxUsageCount={equipment.max_usage_count} />
+            </dd>
+          </>
+        )}
       </dl>
 
-      {!showForm && <button onClick={() => setShowForm(true)}>Log Maintenance</button>}
+      {activeLoan && (
+        <div className="loan-banner">
+          Checked out to <strong>{activeLoan.borrower_name}</strong> for <strong>{activeLoan.project}</strong>,
+          due back {formatDate(activeLoan.expected_return_at)} (manager: {activeLoan.manager_name}).
+        </div>
+      )}
 
-      {showForm && (
+      <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+        {!showMaintenanceForm && <button onClick={() => setShowMaintenanceForm(true)}>Log Maintenance</button>}
+        {!showCheckoutForm && !activeLoan && <button onClick={() => setShowCheckoutForm(true)}>Check Out</button>}
+        {activeLoan && (
+          <button type="button" onClick={handleReturn} disabled={returning}>
+            {returning ? "Returning..." : "Return"}
+          </button>
+        )}
+      </div>
+
+      {showMaintenanceForm && (
         <LogMaintenanceForm
           equipmentId={equipment.id}
-          onCancel={() => setShowForm(false)}
+          onCancel={() => setShowMaintenanceForm(false)}
           onSuccess={() => {
-            setShowForm(false);
+            setShowMaintenanceForm(false);
             refresh();
             setToast(`Maintenance logged for ${equipment.name}.`);
+          }}
+        />
+      )}
+
+      {showCheckoutForm && (
+        <CheckOutForm
+          equipmentId={equipment.id}
+          equipmentName={equipment.name}
+          onCancel={() => setShowCheckoutForm(false)}
+          onSuccess={(loan) => {
+            setShowCheckoutForm(false);
+            refresh();
+            setToast(`Checked out to ${loan.borrower_name} for ${loan.project}.`);
           }}
         />
       )}
@@ -97,6 +155,38 @@ export function EquipmentDetailPage() {
                           .map((pu) => `${pu.part_name ?? `#${pu.part_id}`} x${pu.quantity}`)
                           .join(", ")}
                   </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h2>Borrow history</h2>
+      {loans === null ? (
+        <p>Loading...</p>
+      ) : loans.length === 0 ? (
+        <EmptyState title="Never been borrowed" description="It's stayed at its home location so far." />
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Borrower</th>
+                <th>Checked out</th>
+                <th>Expected return</th>
+                <th>Returned</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loans.map((loan) => (
+                <tr key={loan.id}>
+                  <td>{loan.project}</td>
+                  <td>{loan.borrower_name}</td>
+                  <td>{formatDateTime(loan.checked_out_at)}</td>
+                  <td>{formatDate(loan.expected_return_at)}</td>
+                  <td>{loan.returned_at ? formatDateTime(loan.returned_at) : "-- still out"}</td>
                 </tr>
               ))}
             </tbody>

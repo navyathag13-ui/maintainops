@@ -33,6 +33,7 @@ export function PartsPage() {
                 <th>Quantity on hand</th>
                 <th>Reorder threshold</th>
                 <th>Unit cost</th>
+                <th>Critical</th>
                 <th>Stock</th>
               </tr>
             </thead>
@@ -44,8 +45,9 @@ export function PartsPage() {
                   <td>{part.quantity_on_hand}</td>
                   <td>{part.reorder_threshold}</td>
                   <td>{formatCurrency(part.unit_cost)}</td>
+                  <td>{part.is_critical ? "Yes" : "--"}</td>
                   <td>
-                    <LowStockBadge isLowStock={part.is_low_stock} />
+                    <LowStockBadge urgency={part.urgency} />
                   </td>
                 </tr>
               ))}

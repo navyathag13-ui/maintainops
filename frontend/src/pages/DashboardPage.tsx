@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import { AlertIcon, BoxIcon } from "../components/icons";
+import { AlertIcon, BoxIcon, TrashIcon } from "../components/icons";
 import { StatCard } from "../components/StatCard";
-import type { LowStockPart, OverdueEquipment } from "../types";
+import type { LowStockPart, OverdueEquipment, WearLimitReached } from "../types";
 
 export function DashboardPage() {
   const [overdue, setOverdue] = useState<OverdueEquipment[] | null>(null);
   const [lowStock, setLowStock] = useState<LowStockPart[] | null>(null);
+  const [discardRecommended, setDiscardRecommended] = useState<WearLimitReached[] | null>(null);
 
   useEffect(() => {
     api.getOverdueMaintenance().then(setOverdue);
     api.getLowStock().then(setLowStock);
+    api.getDiscardRecommended().then(setDiscardRecommended);
   }, []);
+
+  const allClear =
+    overdue && lowStock && discardRecommended && overdue.length === 0 && lowStock.length === 0 && discardRecommended.length === 0;
 
   return (
     <div>
@@ -29,6 +34,12 @@ export function DashboardPage() {
           value={lowStock ? lowStock.length : "..."}
           tone={lowStock && lowStock.length > 0 ? "warning" : "neutral"}
           icon={<BoxIcon />}
+        />
+        <StatCard
+          label="Discard recommended"
+          value={discardRecommended ? discardRecommended.length : "..."}
+          tone={discardRecommended && discardRecommended.length > 0 ? "warning" : "neutral"}
+          icon={<TrashIcon />}
         />
       </div>
 
@@ -69,6 +80,7 @@ export function DashboardPage() {
                   <th>SKU</th>
                   <th>On hand</th>
                   <th>Reorder threshold</th>
+                  <th>Urgency</th>
                 </tr>
               </thead>
               <tbody>
@@ -78,6 +90,7 @@ export function DashboardPage() {
                     <td>{part.sku}</td>
                     <td>{part.quantity_on_hand}</td>
                     <td>{part.reorder_threshold}</td>
+                    <td style={{ textTransform: "capitalize" }}>{part.urgency}</td>
                   </tr>
                 ))}
               </tbody>
@@ -86,9 +99,37 @@ export function DashboardPage() {
         </section>
       )}
 
-      {overdue && lowStock && overdue.length === 0 && lowStock.length === 0 && (
+      {discardRecommended && discardRecommended.length > 0 && (
+        <section>
+          <h2>Discard recommended</h2>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Current location</th>
+                  <th>Uses</th>
+                </tr>
+              </thead>
+              <tbody>
+                {discardRecommended.map((eq) => (
+                  <tr key={eq.id}>
+                    <td>{eq.name}</td>
+                    <td>{eq.current_location}</td>
+                    <td>
+                      {eq.usage_count} / {eq.max_usage_count}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {allClear && (
         <p className="subtitle" style={{ marginTop: "1.5rem" }}>
-          Nothing overdue and nothing low on stock. Nice work.
+          Nothing overdue, nothing low on stock, nothing to discard. Nice work.
         </p>
       )}
     </div>
