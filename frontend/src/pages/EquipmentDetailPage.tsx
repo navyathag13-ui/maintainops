@@ -8,7 +8,7 @@ import { MaintenanceStatusBadge } from "../components/MaintenanceStatusBadge";
 import { Toast } from "../components/Toast";
 import { WearLimitBadge } from "../components/WearLimitBadge";
 import type { Equipment, EquipmentLoan, MaintenanceLog } from "../types";
-import { formatDate, formatDateTime, formatHours } from "../utils";
+import { formatCurrency, formatDate, formatDateTime, formatHours } from "../utils";
 
 export function EquipmentDetailPage() {
   const { id } = useParams();
@@ -141,22 +141,30 @@ export function EquipmentDetailPage() {
                 <th>Performed at</th>
                 <th>Description</th>
                 <th>Parts used</th>
+                <th>Cost</th>
               </tr>
             </thead>
             <tbody>
-              {history.map((log) => (
-                <tr key={log.id}>
-                  <td>{formatDateTime(log.performed_at)}</td>
-                  <td>{log.description}</td>
-                  <td>
-                    {log.parts_used.length === 0
-                      ? "--"
-                      : log.parts_used
-                          .map((pu) => `${pu.part_name ?? `#${pu.part_id}`} x${pu.quantity}`)
-                          .join(", ")}
-                  </td>
-                </tr>
-              ))}
+              {history.map((log) => {
+                const cost = log.parts_used.reduce(
+                  (sum, pu) => sum + pu.quantity * Number(pu.unit_cost_at_time),
+                  0
+                );
+                return (
+                  <tr key={log.id}>
+                    <td>{formatDateTime(log.performed_at)}</td>
+                    <td>{log.description}</td>
+                    <td>
+                      {log.parts_used.length === 0
+                        ? "--"
+                        : log.parts_used
+                            .map((pu) => `${pu.part_name ?? `#${pu.part_id}`} x${pu.quantity}`)
+                            .join(", ")}
+                    </td>
+                    <td>{cost === 0 ? "--" : formatCurrency(cost)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

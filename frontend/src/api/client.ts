@@ -4,11 +4,15 @@ import type {
   EquipmentLoan,
   EquipmentLoanInput,
   LowStockPart,
+  MaintenanceCostReport,
   MaintenanceLog,
   MaintenanceLogInput,
   OverdueEquipment,
   Part,
   PartInput,
+  PartRestock,
+  PartRestockInput,
+  PartsSpendReport,
   WearLimitReached,
 } from "../types";
 
@@ -67,6 +71,9 @@ export const api = {
   updatePart: (id: number, payload: Partial<PartInput>) =>
     request<Part>(`/parts/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   deletePart: (id: number) => request<void>(`/parts/${id}`, { method: "DELETE" }),
+  restockPart: (id: number, payload: PartRestockInput) =>
+    request<PartRestock>(`/parts/${id}/restock`, { method: "POST", body: JSON.stringify(payload) }),
+  getPartRestocks: (id: number) => request<PartRestock[]>(`/parts/${id}/restocks`),
 
   createMaintenanceLog: (payload: MaintenanceLogInput) =>
     request<MaintenanceLog>("/maintenance-logs", { method: "POST", body: JSON.stringify(payload) }),
@@ -74,4 +81,7 @@ export const api = {
   getOverdueMaintenance: () => request<OverdueEquipment[]>("/alerts/overdue-maintenance"),
   getLowStock: () => request<LowStockPart[]>("/alerts/low-stock"),
   getDiscardRecommended: () => request<WearLimitReached[]>("/alerts/discard-recommended"),
+
+  getMaintenanceCostReport: () => request<MaintenanceCostReport>("/reports/maintenance-cost"),
+  getPartsSpendReport: () => request<PartsSpendReport>("/reports/parts-spend"),
 };

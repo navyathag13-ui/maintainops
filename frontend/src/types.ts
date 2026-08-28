@@ -53,6 +53,25 @@ export interface PartUsed {
   part_id: number;
   quantity: number;
   part_name: string | null;
+  unit_cost_at_time: string;
+}
+
+export interface PartRestock {
+  id: number;
+  part_id: number;
+  part_name: string | null;
+  quantity: number;
+  unit_cost: string;
+  supplier: string | null;
+  notes: string | null;
+  restocked_at: string;
+}
+
+export interface PartRestockInput {
+  quantity: number;
+  unit_cost: number;
+  supplier: string;
+  notes: string;
 }
 
 export interface MaintenanceLog {
@@ -114,4 +133,40 @@ export interface WearLimitReached {
   current_location: string;
   usage_count: number;
   max_usage_count: number;
+}
+
+export interface CostByEquipment {
+  equipment_id: number;
+  equipment_name: string;
+  total_cost: string;
+  maintenance_count: number;
+}
+
+export interface CostByMonth {
+  month: string;
+  total_cost: string;
+}
+
+export interface MaintenanceCostReport {
+  total_cost: string;
+  by_equipment: CostByEquipment[];
+  by_month: CostByMonth[];
+}
+
+export interface SpendByPart {
+  part_id: number;
+  part_name: string;
+  total_cost: string;
+  total_quantity: number;
+}
+
+export interface SpendByMonth {
+  month: string;
+  total_cost: string;
+}
+
+export interface PartsSpendReport {
+  total_cost: string;
+  by_part: SpendByPart[];
+  by_month: SpendByMonth[];
 }

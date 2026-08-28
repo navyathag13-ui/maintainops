@@ -2,15 +2,21 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { EmptyState } from "../components/EmptyState";
 import { LowStockBadge } from "../components/LowStockBadge";
+import { RestockForm } from "../components/RestockForm";
+import { Toast } from "../components/Toast";
 import type { Part } from "../types";
 import { formatCurrency } from "../utils";
 
 export function PartsPage() {
   const [parts, setParts] = useState<Part[] | null>(null);
+  const [restockingPart, setRestockingPart] = useState<Part | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
-  useEffect(() => {
+  function refresh() {
     api.listParts().then(setParts);
-  }, []);
+  }
+
+  useEffect(refresh, []);
 
   return (
     <div>
@@ -35,6 +41,7 @@ export function PartsPage() {
                 <th>Unit cost</th>
                 <th>Critical</th>
                 <th>Stock</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -49,12 +56,31 @@ export function PartsPage() {
                   <td>
                     <LowStockBadge urgency={part.urgency} />
                   </td>
+                  <td>
+                    <button type="button" onClick={() => setRestockingPart(part)}>
+                      Restock
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {restockingPart && (
+        <RestockForm
+          part={restockingPart}
+          onCancel={() => setRestockingPart(null)}
+          onSuccess={(restock) => {
+            setRestockingPart(null);
+            refresh();
+            setToast(`${restock.quantity} x ${restockingPart.name} received from ${restock.supplier}.`);
+          }}
+        />
+      )}
+
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
   );
 }

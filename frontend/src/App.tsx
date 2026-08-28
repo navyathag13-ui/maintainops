@@ -5,6 +5,7 @@ import { EquipmentDetailPage } from "./pages/EquipmentDetailPage";
 import { EquipmentListPage } from "./pages/EquipmentListPage";
 import { EquipmentLoansPage } from "./pages/EquipmentLoansPage";
 import { PartsPage } from "./pages/PartsPage";
+import { ReportsPage } from "./pages/ReportsPage";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
         <NavLink to="/equipment">Equipment</NavLink>
         <NavLink to="/borrowed">Borrowed</NavLink>
         <NavLink to="/parts">Parts</NavLink>
+        <NavLink to="/reports">Reports</NavLink>
       </nav>
       <main className="app-main">
         <Routes>
@@ -30,6 +32,7 @@ function App() {
           <Route path="/equipment/:id" element={<EquipmentDetailPage />} />
           <Route path="/borrowed" element={<EquipmentLoansPage />} />
           <Route path="/parts" element={<PartsPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
         </Routes>
       </main>
     </div>
