@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Equipment, MaintenanceLog, Part, PartUsed
+from .models import Equipment, EquipmentLoan, MaintenanceLog, Part, PartUsed
 
 
 def is_equipment_overdue(equipment: Equipment) -> bool:
@@ -20,6 +21,24 @@ def is_equipment_overdue(equipment: Equipment) -> bool:
 def is_part_low_stock(part: Part) -> bool:
     """At-or-below the reorder threshold counts as low stock."""
     return part.quantity_on_hand <= part.reorder_threshold
+
+
+def is_equipment_at_wear_limit(equipment: Equipment) -> bool:
+    """Some equipment is rated for a fixed number of uses rather than (or
+    in addition to) hours -- e.g. a harness rated for 5 deployments. No
+    limit set (max_usage_count is None) means this never applies."""
+    if equipment.max_usage_count is None:
+        return False
+    return equipment.usage_count >= equipment.max_usage_count
+
+
+def part_urgency(part: Part) -> Literal["none", "watch", "urgent"]:
+    """"none" if stock is fine. Otherwise "urgent" for a part marked
+    critical (work stops without it) and "watch" for everything else low
+    -- can wait a few days for a restock."""
+    if not is_part_low_stock(part):
+        return "none"
+    return "urgent" if part.is_critical else "watch"
 
 
 @dataclass
@@ -68,6 +87,27 @@ class InsufficientStockError(Exception):
             for s in shortfalls
         )
         super().__init__(f"Insufficient stock for: {detail}")
+
+
+class EquipmentAlreadyCheckedOutError(Exception):
+    def __init__(self, equipment_id: int, active_loan_id: int):
+        self.equipment_id = equipment_id
+        self.active_loan_id = active_loan_id
+        super().__init__(
+            f"Equipment {equipment_id} is already checked out (loan {active_loan_id}) -- return it first"
+        )
+
+
+class LoanNotFoundError(Exception):
+    def __init__(self, loan_id: int):
+        self.loan_id = loan_id
+        super().__init__(f"Loan {loan_id} not found")
+
+
+class LoanAlreadyReturnedError(Exception):
+    def __init__(self, loan_id: int):
+        self.loan_id = loan_id
+        super().__init__(f"Loan {loan_id} was already returned")
 
 
 def record_maintenance(
@@ -143,3 +183,64 @@ def record_maintenance(
     db.add(log)
     db.flush()
     return log
+
+
+def check_out_equipment(
+    db: Session,
+    equipment_id: int,
+    project: str,
+    manager_name: str,
+    borrower_name: str,
+    expected_return_at: datetime,
+) -> EquipmentLoan:
+    """Borrow a piece of equipment. Rejects the checkout if it's already
+    out to someone else -- one active (unreturned) loan per piece of
+    equipment at a time. Moves current_location to the project, and counts
+    this as one "use" toward the equipment's wear limit, if it has one.
+    """
+    equipment = db.execute(
+        select(Equipment).where(Equipment.id == equipment_id).with_for_update()
+    ).scalar_one_or_none()
+    if equipment is None:
+        raise EquipmentNotFoundError(equipment_id)
+
+    active_loan = db.execute(
+        select(EquipmentLoan).where(
+            EquipmentLoan.equipment_id == equipment_id,
+            EquipmentLoan.returned_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if active_loan is not None:
+        raise EquipmentAlreadyCheckedOutError(equipment_id, active_loan.id)
+
+    loan = EquipmentLoan(
+        project=project,
+        manager_name=manager_name,
+        borrower_name=borrower_name,
+        checked_out_at=datetime.now(timezone.utc),
+        expected_return_at=expected_return_at,
+    )
+    equipment.loans.append(loan)
+    equipment.current_location = project
+    equipment.usage_count += 1
+
+    db.flush()
+    return loan
+
+
+def return_equipment(db: Session, loan_id: int) -> EquipmentLoan:
+    """Return a borrowed piece of equipment, moving it back to its home
+    location."""
+    loan = db.execute(
+        select(EquipmentLoan).where(EquipmentLoan.id == loan_id).with_for_update()
+    ).scalar_one_or_none()
+    if loan is None:
+        raise LoanNotFoundError(loan_id)
+    if loan.returned_at is not None:
+        raise LoanAlreadyReturnedError(loan_id)
+
+    loan.returned_at = datetime.now(timezone.utc)
+    loan.equipment.current_location = loan.equipment.location
+
+    db.flush()
+    return loan

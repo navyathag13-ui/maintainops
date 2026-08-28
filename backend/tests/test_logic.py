@@ -4,16 +4,23 @@ import pytest
 
 from app.logic import (
     DuplicatePartInRequestError,
+    EquipmentAlreadyCheckedOutError,
     EquipmentNotFoundError,
     InsufficientStockError,
     InvalidQuantityError,
+    LoanAlreadyReturnedError,
+    LoanNotFoundError,
     PartNotFoundError,
     PartUsageInput,
+    check_out_equipment,
+    is_equipment_at_wear_limit,
     is_equipment_overdue,
     is_part_low_stock,
+    part_urgency,
     record_maintenance,
+    return_equipment,
 )
-from app.models import Equipment, MaintenanceLog, Part
+from app.models import Equipment, EquipmentLoan, MaintenanceLog, Part
 
 
 def make_equipment(**overrides) -> Equipment:
@@ -24,8 +31,12 @@ def make_equipment(**overrides) -> Equipment:
         usage_hours=0.0,
         last_maintenance_usage_hours=0.0,
         maintenance_interval_hours=500.0,
+        usage_count=0,
+        max_usage_count=None,
     )
     defaults.update(overrides)
+    # current_location defaults to the home location unless explicitly overridden.
+    defaults.setdefault("current_location", defaults["location"])
     return Equipment(**defaults)
 
 
@@ -36,6 +47,7 @@ def make_part(**overrides) -> Part:
         quantity_on_hand=10,
         reorder_threshold=3,
         unit_cost=12.50,
+        is_critical=False,
     )
     defaults.update(overrides)
     return Part(**defaults)
@@ -326,3 +338,207 @@ class TestRecordMaintenance:
 
         assert len(equipment.maintenance_logs) == 1
         assert equipment.last_maintenance_usage_hours == 250
+
+
+# --- is_equipment_at_wear_limit ---------------------------------------------
+
+
+class TestIsEquipmentAtWearLimit:
+    def test_no_limit_set_is_never_at_limit(self):
+        equipment = make_equipment(usage_count=999, max_usage_count=None)
+        assert is_equipment_at_wear_limit(equipment) is False
+
+    def test_under_limit(self):
+        equipment = make_equipment(usage_count=3, max_usage_count=5)
+        assert is_equipment_at_wear_limit(equipment) is False
+
+    def test_exactly_at_limit_counts_as_reached(self):
+        equipment = make_equipment(usage_count=5, max_usage_count=5)
+        assert is_equipment_at_wear_limit(equipment) is True
+
+    def test_over_limit(self):
+        equipment = make_equipment(usage_count=6, max_usage_count=5)
+        assert is_equipment_at_wear_limit(equipment) is True
+
+    def test_zero_limit_means_any_use_trips_it(self):
+        equipment = make_equipment(usage_count=0, max_usage_count=0)
+        assert is_equipment_at_wear_limit(equipment) is True
+
+
+# --- part_urgency ------------------------------------------------------------
+
+
+class TestPartUrgency:
+    def test_not_low_stock_is_none_regardless_of_criticality(self):
+        part = make_part(quantity_on_hand=10, reorder_threshold=3, is_critical=True)
+        assert part_urgency(part) == "none"
+
+    def test_low_stock_not_critical_is_watch(self):
+        part = make_part(quantity_on_hand=2, reorder_threshold=3, is_critical=False)
+        assert part_urgency(part) == "watch"
+
+    def test_low_stock_critical_is_urgent(self):
+        part = make_part(quantity_on_hand=2, reorder_threshold=3, is_critical=True)
+        assert part_urgency(part) == "urgent"
+
+    def test_exactly_at_threshold_critical_is_urgent(self):
+        part = make_part(quantity_on_hand=3, reorder_threshold=3, is_critical=True)
+        assert part_urgency(part) == "urgent"
+
+    def test_zero_stock_critical_is_urgent(self):
+        part = make_part(quantity_on_hand=0, reorder_threshold=3, is_critical=True)
+        assert part_urgency(part) == "urgent"
+
+
+# --- check_out_equipment / return_equipment -----------------------------------
+
+
+class TestCheckOutAndReturnEquipment:
+    def test_checkout_creates_loan_moves_location_and_counts_a_use(self, db_session):
+        equipment = make_equipment(location="Garage Back Storage 3", max_usage_count=5)
+        db_session.add(equipment)
+        db_session.flush()
+
+        loan = check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project="Project #45",
+            manager_name="Dana",
+            borrower_name="Yusuf",
+            expected_return_at=datetime.now(timezone.utc),
+        )
+
+        assert isinstance(loan, EquipmentLoan)
+        assert loan.returned_at is None
+        assert equipment.current_location == "Project #45"
+        assert equipment.usage_count == 1
+        assert is_equipment_at_wear_limit(equipment) is False
+
+    def test_checkout_while_already_checked_out_is_rejected(self, db_session):
+        equipment = make_equipment()
+        db_session.add(equipment)
+        db_session.flush()
+
+        check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project="Project #45",
+            manager_name="Dana",
+            borrower_name="Yusuf",
+            expected_return_at=datetime.now(timezone.utc),
+        )
+
+        with pytest.raises(EquipmentAlreadyCheckedOutError):
+            check_out_equipment(
+                db_session,
+                equipment_id=equipment.id,
+                project="Project #99",
+                manager_name="Dana",
+                borrower_name="Someone else",
+                expected_return_at=datetime.now(timezone.utc),
+            )
+
+        # Still out at the first project -- the second attempt didn't move it.
+        assert equipment.current_location == "Project #45"
+        assert equipment.usage_count == 1
+
+    def test_checkout_unknown_equipment_raises(self, db_session):
+        with pytest.raises(EquipmentNotFoundError):
+            check_out_equipment(
+                db_session,
+                equipment_id=999,
+                project="Project #45",
+                manager_name="Dana",
+                borrower_name="Yusuf",
+                expected_return_at=datetime.now(timezone.utc),
+            )
+
+    def test_return_moves_equipment_back_to_home_location(self, db_session):
+        equipment = make_equipment(location="Garage Back Storage 3")
+        db_session.add(equipment)
+        db_session.flush()
+
+        loan = check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project="Project #45",
+            manager_name="Dana",
+            borrower_name="Yusuf",
+            expected_return_at=datetime.now(timezone.utc),
+        )
+        assert equipment.current_location == "Project #45"
+
+        returned = return_equipment(db_session, loan.id)
+
+        assert returned.returned_at is not None
+        assert equipment.current_location == "Garage Back Storage 3"
+
+    def test_return_allows_a_fresh_checkout_afterward(self, db_session):
+        equipment = make_equipment(max_usage_count=5)
+        db_session.add(equipment)
+        db_session.flush()
+
+        first_loan = check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project="Project #45",
+            manager_name="Dana",
+            borrower_name="Yusuf",
+            expected_return_at=datetime.now(timezone.utc),
+        )
+        return_equipment(db_session, first_loan.id)
+
+        second_loan = check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project="Project #99",
+            manager_name="Dana",
+            borrower_name="Priya",
+            expected_return_at=datetime.now(timezone.utc),
+        )
+
+        assert second_loan.id != first_loan.id
+        assert equipment.current_location == "Project #99"
+        assert equipment.usage_count == 2
+
+    def test_return_already_returned_loan_is_rejected(self, db_session):
+        equipment = make_equipment()
+        db_session.add(equipment)
+        db_session.flush()
+
+        loan = check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project="Project #45",
+            manager_name="Dana",
+            borrower_name="Yusuf",
+            expected_return_at=datetime.now(timezone.utc),
+        )
+        return_equipment(db_session, loan.id)
+
+        with pytest.raises(LoanAlreadyReturnedError):
+            return_equipment(db_session, loan.id)
+
+    def test_return_unknown_loan_raises(self, db_session):
+        with pytest.raises(LoanNotFoundError):
+            return_equipment(db_session, 999)
+
+    def test_checkout_that_hits_wear_limit_is_still_allowed_but_flagged(self, db_session):
+        # The 5th use is allowed -- it's the checkout itself that trips the
+        # flag, not a block. Discard is a human decision, not an
+        # auto-enforced lockout.
+        equipment = make_equipment(usage_count=4, max_usage_count=5)
+        db_session.add(equipment)
+        db_session.flush()
+
+        check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project="Project #45",
+            manager_name="Dana",
+            borrower_name="Yusuf",
+            expected_return_at=datetime.now(timezone.utc),
+        )
+
+        assert equipment.usage_count == 5
+        assert is_equipment_at_wear_limit(equipment) is True
