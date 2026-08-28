@@ -43,6 +43,43 @@ correct for one part and wrong for the other, and now nobody trusts the numbers 
 the whole request is validated against current stock *before* anything is written, and if
 anything's short, nothing moves. Multi-part logs really are all-or-nothing.
 
+## Borrowing equipment
+
+The other half of "spreadsheet chaos" isn't maintenance, it's *where is the thing*. A drill
+gets thrown in a truck for a job, the truck goes to three more sites that week, and six weeks
+later nobody can say whether it's still out, who has it, or whether it even came back to the
+right shelf. So checking equipment out is a first-class action, not an afterthought:
+
+> **What are you borrowing:** Safety Harness A
+> **For which project:** House Build #123
+> **Who's the manager:** Dana
+> **Who's borrowing it:** Yusuf
+> **Expected return:** 9/4/2026
+
+Hit submit and the equipment's `current_location` moves from *Garage Back Storage 3* to
+*House Build #123* immediately — the equipment list, the equipment's own detail page, and the
+dashboard all reflect it without anyone touching a spreadsheet. Returning it moves the location
+back and closes out the loan.
+
+![Borrowed Equipment — who has what, and when it's due back](docs/screenshots/borrowed.png)
+
+Two rules make this trustworthy instead of just a log of good intentions:
+
+- **One active loan per piece of equipment, enforced, not just conventionally true.** Trying
+  to check out something that's already checked out gets rejected (`409`, with the id of the
+  loan that's blocking it) instead of silently creating a second "who has it" record that
+  contradicts the first. Two people can't both think they have the only harness.
+- **Some equipment wears out from use, not time.** A few pieces of gear (safety harnesses,
+  anything with a manufacturer-rated deployment limit) are only good for a fixed number of
+  uses. Every checkout counts as one use, and once the count reaches the limit the equipment
+  is flagged for discard everywhere — the equipment list, its detail page, and a dedicated
+  Dashboard card. It's a flag, not a lock: the gear still checks out fine at the limit, because
+  *deciding to actually discard something* is a judgment call for a person holding it in their
+  hands, not something software should auto-enforce on a maybe-stale count.
+
+I deliberately kept "manager" and "borrower" as free-text fields rather than building a real
+staff directory for this pass — see [What I'd add next](#what-id-add-next-honestly).
+
 ## What I ran into building it, and what I'd tell someone doing this again
 
 **A bug the tests caught, not code review.** Early on, `record_maintenance` created the
@@ -82,6 +119,14 @@ a legitimate thing to do but is more machinery than this project's test suite cu
 carries) — so treat that protection as reasoned-about and code-reviewed, not
 test-verified. If this went further, that'd be the first integration test I'd add.
 
+**No `is_checked_out` column, on purpose.** It would've been the obvious first move — a
+boolean on `Equipment` that flips on checkout and off on return. I didn't add it, because a
+boolean like that is redundant state: the truth is really "does an `EquipmentLoan` row for
+this equipment have `returned_at IS NULL`," and the moment you store the same fact twice you've
+created a way for them to disagree (a bug, a failed transaction, a manual DB fix that touches
+one and not the other). `is_checked_out` in the API response is *computed* from the loan
+table on every read instead. Slightly more query work, zero chance of the flag lying to you.
+
 ## Architecture
 
 ```
@@ -89,29 +134,32 @@ maintainops/
 ├── docker-compose.yml
 ├── backend/
 │   ├── app/
-│   │   ├── models.py        Equipment, Part, MaintenanceLog, PartUsed (SQLAlchemy 2.0)
+│   │   ├── models.py        Equipment, Part, MaintenanceLog, PartUsed, EquipmentLoan (SQLAlchemy 2.0)
 │   │   ├── logic.py         Business logic -- framework-agnostic, no FastAPI/HTTP imports
 │   │   ├── schemas.py       Pydantic request/response models
 │   │   ├── database.py      Engine, session factory, commit-on-success get_db()
 │   │   ├── main.py          FastAPI app, CORS, exception -> HTTP status mapping
-│   │   └── routers/         equipment.py, parts.py, maintenance_logs.py, alerts.py
-│   └── tests/test_logic.py  23 tests against the business logic layer
+│   │   └── routers/         equipment.py, equipment_loans.py, parts.py,
+│   │                        maintenance_logs.py, alerts.py
+│   └── tests/test_logic.py  41 tests against the business logic layer
 └── frontend/
     └── src/
         ├── api/client.ts     Typed fetch wrapper, one function per endpoint
         ├── types.ts          TypeScript interfaces mirroring the API schemas
         ├── utils.ts          Maintenance-status thresholding, formatting
-        ├── components/       MaintenanceStatusBadge, LowStockBadge, StatCard,
-        │                     LogMaintenanceForm, Toast, EmptyState
-        ├── pages/            DashboardPage, EquipmentListPage, EquipmentDetailPage, PartsPage
+        ├── components/       MaintenanceStatusBadge, LowStockBadge, WearLimitBadge,
+        │                     StatCard, LogMaintenanceForm, CheckOutForm,
+        │                     NewEquipmentForm, Toast, EmptyState
+        ├── pages/            DashboardPage, EquipmentListPage, EquipmentDetailPage,
+        │                     EquipmentLoansPage, PartsPage
         └── App.tsx           Routing + nav
 ```
 
 `logic.py` never imports FastAPI. It takes a SQLAlchemy `Session` and plain arguments, and
-raises its own exception types (`EquipmentNotFoundError`, `InsufficientStockError`, ...). The
-router layer's only job is catching those and mapping them to status codes. That split is why
-the 23 tests in `test_logic.py` run in under a fifth of a second against SQLite, with zero
-HTTP machinery involved.
+raises its own exception types (`EquipmentNotFoundError`, `InsufficientStockError`,
+`EquipmentAlreadyCheckedOutError`, ...). The router layer's only job is catching those and
+mapping them to status codes. That split is why the 41 tests in `test_logic.py` run in under
+half a second against SQLite, with zero HTTP machinery involved.
 
 ## The business logic itself
 
@@ -122,6 +170,16 @@ def is_equipment_overdue(equipment: Equipment) -> bool:
 
 def is_part_low_stock(part: Part) -> bool:
     return part.quantity_on_hand <= part.reorder_threshold
+
+def is_equipment_at_wear_limit(equipment: Equipment) -> bool:
+    if equipment.max_usage_count is None:
+        return False
+    return equipment.usage_count >= equipment.max_usage_count
+
+def part_urgency(part: Part) -> Literal["none", "watch", "urgent"]:
+    if not is_part_low_stock(part):
+        return "none"
+    return "urgent" if part.is_critical else "watch"
 ```
 
 `record_maintenance` does more, in this order:
@@ -140,6 +198,13 @@ def is_part_low_stock(part: Part) -> bool:
    the transaction boundary and commits on success or rolls back on any exception, including
    ones raised deep in a router.
 
+`check_out_equipment` follows the same shape: locks the equipment row (`SELECT ... FOR
+UPDATE`), checks for an existing unreturned `EquipmentLoan` on that equipment and rejects if
+one exists, then creates the loan, moves `current_location` to the project, and increments
+`usage_count`. `return_equipment` sets `returned_at` and moves `current_location` back to
+`location` (the home spot). Neither commits, same as `record_maintenance` -- same transaction
+ownership rule throughout the app.
+
 ## API Reference
 
 | Method | Endpoint                     | Description                                              |
@@ -150,6 +215,10 @@ def is_part_low_stock(part: Part) -> bool:
 | PATCH  | `/equipment/{id}`             | Partial update                                                    |
 | DELETE | `/equipment/{id}`             | Delete                                                              |
 | GET    | `/equipment/{id}/history`     | Maintenance logs for this equipment, newest first                    |
+| GET    | `/equipment/{id}/loans`       | Borrow history for this equipment, newest first                       |
+| POST   | `/equipment/{id}/checkout`    | Borrow it -- project, manager, borrower, expected return                |
+| POST   | `/equipment-loans/{id}/return`| Return a loan; moves the equipment back to its home location             |
+| GET    | `/equipment-loans`            | All loans; `?active=true` for currently-out only, `?active=false` for returned |
 | GET    | `/parts`                      | List all parts                                                       |
 | POST   | `/parts`                      | Create a part                                                          |
 | GET    | `/parts/{id}`                 | Get one part                                                           |
@@ -157,12 +226,15 @@ def is_part_low_stock(part: Part) -> bool:
 | DELETE | `/parts/{id}`                 | Delete                                                                    |
 | POST   | `/maintenance-logs`           | Log maintenance, consuming parts and resetting the baseline               |
 | GET    | `/alerts/overdue-maintenance` | Equipment currently overdue, with hours-overdue                             |
-| GET    | `/alerts/low-stock`           | Parts at or below their reorder threshold                                    |
+| GET    | `/alerts/low-stock`           | Parts at or below their reorder threshold, with urgency                      |
+| GET    | `/alerts/discard-recommended` | Equipment that has hit its wear-count limit                                   |
 
-`404` for a missing id, `400` for validation failures (insufficient stock — with a
+`404` for a missing id. `400` for validation failures (insufficient stock — with a
 `shortfalls` array telling you exactly which parts and by how much — invalid quantity,
-duplicate part in one request), `201` on create, `204` on delete. Errors are always JSON,
-never a raw stack trace.
+duplicate part in one request). `409` for a request that's well-formed but conflicts with the
+resource's current state (checking out something already checked out — the response includes
+`active_loan_id` — or returning a loan twice). `201` on create, `204` on delete. Errors are
+always JSON, never a raw stack trace.
 
 Swagger UI is at `/docs`, ReDoc at `/redoc` — both work standalone with no frontend running.
 
@@ -202,18 +274,24 @@ npm run dev
 
 ## Testing
 
-`backend/tests/test_logic.py` — 23 cases against the three business-logic functions, run
-against a fresh in-memory SQLite database per test. Beyond the obvious correct-path cases,
-it specifically covers:
+`backend/tests/test_logic.py` — 41 cases against the business-logic functions, run against a
+fresh in-memory SQLite database per test. Beyond the obvious correct-path cases, it
+specifically covers:
 
-- Exactly-at-threshold for both the overdue check and the low-stock check — the spec is
-  `>=`/`<=`, so the boundary itself needs a test, not just values comfortably on either side
+- Exactly-at-threshold for the overdue check, the low-stock check, *and* the wear-limit check
+  — the spec is `>=`/`<=` throughout, so every boundary needs a test, not just values
+  comfortably on either side
 - Zero stock, and insufficient stock on one part out of a multi-part request — with an
   assertion that the *other* part's quantity is untouched, proving all-or-nothing actually
   holds
 - Zero/negative requested quantity, and the same part listed twice in one request
 - Equipment with no prior maintenance history (the bug described above)
-- Unknown equipment id / unknown part id
+- Every cell of the urgency matrix: low-stock × critical, low-stock × not-critical,
+  not-low-stock × critical (still "none" — urgency only matters once stock is actually low)
+- Checkout while already checked out (rejected), return while already returned (rejected),
+  return-then-recheckout (allowed, and counts as a fresh use), a checkout that lands exactly
+  on the wear limit (allowed, but flags `is_equipment_at_wear_limit`)
+- Unknown equipment id / unknown part id / unknown loan id
 
 ## Tech Stack
 
@@ -236,7 +314,18 @@ it specifically covers:
   the first thing to swap in the moment this stops being a green-field pilot.
 - **Pagination on `/equipment` and `/parts`.** Fine to load everything at once now; won't be
   once a fleet or a catalog gets past a couple hundred rows.
-- **A real concurrency test** for the `SELECT ... FOR UPDATE` path, using two real
-  transactions against Postgres, not just code review.
-- **Barcode/QR scan on the parts dropdown.** The manual dropdown is fine for a demo; a tech
-  standing at a parts shelf would rather scan a bin label than search a list.
+- **A real concurrency test** for the `SELECT ... FOR UPDATE` paths (both the parts-stock one
+  and the equipment-checkout one), using two real transactions against Postgres, not just
+  code review.
+- **Barcode/QR scan on the parts dropdown, and on equipment for checkout.** The manual
+  dropdown is fine for a demo; a tech standing at a shelf would rather scan a bin or asset
+  label than search a list.
+- **Real borrower/manager records instead of free text.** I chose free text deliberately for
+  this pass — it's the fastest path to something usable, and it upgrades cleanly later
+  (existing loan rows just keep their typed name, new ones can reference a person record). The
+  tradeoff is real, though: nothing stops "Yusuf" and "yusuf" and "Yousef" from being three
+  different people in the data.
+- **A staff/scheduling layer is explicitly not part of this project.** People, time-off, team
+  calendars, and company announcements came up as real needs while building this, but they're
+  a different data model and a different story than equipment tracking — that's a separate
+  project, not a module bolted onto this one.
