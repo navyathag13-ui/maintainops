@@ -16,7 +16,7 @@ from .logic import (
     LoanNotFoundError,
     PartNotFoundError,
 )
-from .routers import alerts, equipment, equipment_loans, maintenance_logs, parts
+from .routers import alerts, equipment, equipment_loans, maintenance_logs, parts, reports
 
 
 @asynccontextmanager
@@ -103,6 +103,7 @@ app.include_router(equipment_loans.router)
 app.include_router(parts.router)
 app.include_router(maintenance_logs.router)
 app.include_router(alerts.router)
+app.include_router(reports.router)
 
 
 @app.get("/health")

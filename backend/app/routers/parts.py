@@ -3,9 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..logic import is_part_low_stock, part_urgency
+from ..logic import is_part_low_stock, part_urgency, restock_part
 from ..models import Part
-from ..schemas import PartCreate, PartRead, PartUpdate
+from ..schemas import PartCreate, PartRead, PartRestockCreate, PartRestockRead, PartUpdate
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
@@ -63,3 +63,23 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
 def delete_part(part_id: int, db: Session = Depends(get_db)):
     part = _get_or_404(db, part_id)
     db.delete(part)
+
+
+@router.post("/{part_id}/restock", response_model=PartRestockRead, status_code=201)
+def restock(part_id: int, payload: PartRestockCreate, db: Session = Depends(get_db)):
+    restock = restock_part(
+        db,
+        part_id=part_id,
+        quantity=payload.quantity,
+        unit_cost=payload.unit_cost,
+        supplier=payload.supplier,
+        notes=payload.notes,
+    )
+    return PartRestockRead.from_orm_with_part_name(restock)
+
+
+@router.get("/{part_id}/restocks", response_model=list[PartRestockRead])
+def get_restocks(part_id: int, db: Session = Depends(get_db)):
+    part = _get_or_404(db, part_id)
+    restocks = sorted(part.restocks, key=lambda r: r.restocked_at, reverse=True)
+    return [PartRestockRead.from_orm_with_part_name(r) for r in restocks]

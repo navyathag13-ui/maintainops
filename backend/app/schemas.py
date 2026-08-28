@@ -83,6 +83,42 @@ class PartRead(PartBase):
     urgency: str  # "none" | "watch" | "urgent"
 
 
+# --- Part restocks ---------------------------------------------------------------
+
+
+class PartRestockCreate(BaseModel):
+    quantity: int = Field(gt=0)
+    unit_cost: Decimal
+    supplier: str
+    notes: str = ""
+
+
+class PartRestockRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    part_id: int
+    part_name: Optional[str] = None
+    quantity: int
+    unit_cost: Decimal
+    supplier: Optional[str] = None
+    notes: Optional[str] = None
+    restocked_at: datetime
+
+    @classmethod
+    def from_orm_with_part_name(cls, restock) -> "PartRestockRead":
+        return cls(
+            id=restock.id,
+            part_id=restock.part_id,
+            part_name=restock.part.name if restock.part else None,
+            quantity=restock.quantity,
+            unit_cost=restock.unit_cost,
+            supplier=restock.supplier,
+            notes=restock.notes,
+            restocked_at=restock.restocked_at,
+        )
+
+
 # --- Maintenance logs ---------------------------------------------------------------
 
 
@@ -97,6 +133,7 @@ class PartUsedRead(BaseModel):
     part_id: int
     quantity: int
     part_name: Optional[str] = None
+    unit_cost_at_time: Decimal
 
     @classmethod
     def from_orm_with_part_name(cls, part_used) -> "PartUsedRead":
@@ -104,6 +141,7 @@ class PartUsedRead(BaseModel):
             part_id=part_used.part_id,
             quantity=part_used.quantity,
             part_name=part_used.part.name if part_used.part else None,
+            unit_cost_at_time=part_used.unit_cost_at_time,
         )
 
 
@@ -201,6 +239,45 @@ class WearLimitReachedRead(BaseModel):
     current_location: str
     usage_count: int
     max_usage_count: int
+
+
+# --- Reports ---------------------------------------------------------------
+
+
+class CostByEquipmentRead(BaseModel):
+    equipment_id: int
+    equipment_name: str
+    total_cost: Decimal
+    maintenance_count: int
+
+
+class CostByMonthRead(BaseModel):
+    month: str
+    total_cost: Decimal
+
+
+class MaintenanceCostReportRead(BaseModel):
+    total_cost: Decimal
+    by_equipment: list[CostByEquipmentRead]
+    by_month: list[CostByMonthRead]
+
+
+class SpendByPartRead(BaseModel):
+    part_id: int
+    part_name: str
+    total_cost: Decimal
+    total_quantity: int
+
+
+class SpendByMonthRead(BaseModel):
+    month: str
+    total_cost: Decimal
+
+
+class PartsSpendReportRead(BaseModel):
+    total_cost: Decimal
+    by_part: list[SpendByPartRead]
+    by_month: list[SpendByMonthRead]
 
 
 # --- Errors ---------------------------------------------------------------
