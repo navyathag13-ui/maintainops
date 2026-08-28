@@ -8,12 +8,15 @@ from fastapi.responses import JSONResponse
 from .database import Base, engine
 from .logic import (
     DuplicatePartInRequestError,
+    EquipmentAlreadyCheckedOutError,
     EquipmentNotFoundError,
     InsufficientStockError,
     InvalidQuantityError,
+    LoanAlreadyReturnedError,
+    LoanNotFoundError,
     PartNotFoundError,
 )
-from .routers import alerts, equipment, maintenance_logs, parts
+from .routers import alerts, equipment, equipment_loans, maintenance_logs, parts
 
 
 @asynccontextmanager
@@ -75,7 +78,28 @@ async def duplicate_part_handler(request: Request, exc: DuplicatePartInRequestEr
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+@app.exception_handler(LoanNotFoundError)
+async def loan_not_found_handler(request: Request, exc: LoanNotFoundError):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+# 409 Conflict, not 400: the request itself is well-formed, it's the
+# equipment/loan's current state that makes it invalid right now.
+@app.exception_handler(EquipmentAlreadyCheckedOutError)
+async def equipment_already_checked_out_handler(request: Request, exc: EquipmentAlreadyCheckedOutError):
+    return JSONResponse(
+        status_code=409,
+        content={"detail": str(exc), "active_loan_id": exc.active_loan_id},
+    )
+
+
+@app.exception_handler(LoanAlreadyReturnedError)
+async def loan_already_returned_handler(request: Request, exc: LoanAlreadyReturnedError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 app.include_router(equipment.router)
+app.include_router(equipment_loans.router)
 app.include_router(parts.router)
 app.include_router(maintenance_logs.router)
 app.include_router(alerts.router)

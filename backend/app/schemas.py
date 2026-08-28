@@ -16,6 +16,9 @@ class EquipmentBase(BaseModel):
     status: EquipmentStatus = EquipmentStatus.OPERATIONAL
     usage_hours: Decimal = Decimal("0")
     maintenance_interval_hours: Decimal
+    # None = no wear limit, which is most equipment. Set only for gear
+    # that's rated for a fixed number of uses.
+    max_usage_count: Optional[int] = None
 
 
 class EquipmentCreate(EquipmentBase):
@@ -26,17 +29,23 @@ class EquipmentUpdate(BaseModel):
     name: Optional[str] = None
     type: Optional[str] = None
     location: Optional[str] = None
+    current_location: Optional[str] = None
     status: Optional[EquipmentStatus] = None
     usage_hours: Optional[Decimal] = None
     maintenance_interval_hours: Optional[Decimal] = None
+    max_usage_count: Optional[int] = None
 
 
 class EquipmentRead(EquipmentBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    current_location: str
     last_maintenance_usage_hours: Decimal
     is_overdue: bool
+    usage_count: int
+    is_at_wear_limit: bool
+    is_checked_out: bool
 
 
 # --- Parts ---------------------------------------------------------------
@@ -48,6 +57,9 @@ class PartBase(BaseModel):
     quantity_on_hand: int = 0
     reorder_threshold: int = 0
     unit_cost: Decimal
+    # Does running out actually stop work? Drives urgency, set by whoever
+    # knows the part -- not inferred from usage data we don't track.
+    is_critical: bool = False
 
 
 class PartCreate(PartBase):
@@ -60,6 +72,7 @@ class PartUpdate(BaseModel):
     quantity_on_hand: Optional[int] = None
     reorder_threshold: Optional[int] = None
     unit_cost: Optional[Decimal] = None
+    is_critical: Optional[bool] = None
 
 
 class PartRead(PartBase):
@@ -67,6 +80,7 @@ class PartRead(PartBase):
 
     id: int
     is_low_stock: bool
+    urgency: str  # "none" | "watch" | "urgent"
 
 
 # --- Maintenance logs ---------------------------------------------------------------
@@ -120,6 +134,44 @@ class MaintenanceLogRead(BaseModel):
         )
 
 
+# --- Equipment loans (borrow / return) ---------------------------------------
+
+
+class EquipmentLoanCreate(BaseModel):
+    project: str
+    manager_name: str
+    borrower_name: str
+    expected_return_at: datetime
+
+
+class EquipmentLoanRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    equipment_id: int
+    equipment_name: Optional[str] = None
+    project: str
+    manager_name: str
+    borrower_name: str
+    checked_out_at: datetime
+    expected_return_at: datetime
+    returned_at: Optional[datetime] = None
+
+    @classmethod
+    def from_orm_with_equipment_name(cls, loan) -> "EquipmentLoanRead":
+        return cls(
+            id=loan.id,
+            equipment_id=loan.equipment_id,
+            equipment_name=loan.equipment.name if loan.equipment else None,
+            project=loan.project,
+            manager_name=loan.manager_name,
+            borrower_name=loan.borrower_name,
+            checked_out_at=loan.checked_out_at,
+            expected_return_at=loan.expected_return_at,
+            returned_at=loan.returned_at,
+        )
+
+
 # --- Alerts ---------------------------------------------------------------
 
 
@@ -139,6 +191,16 @@ class LowStockPartRead(BaseModel):
     sku: str
     quantity_on_hand: int
     reorder_threshold: int
+    is_critical: bool
+    urgency: str  # "watch" | "urgent"
+
+
+class WearLimitReachedRead(BaseModel):
+    id: int
+    name: str
+    current_location: str
+    usage_count: int
+    max_usage_count: int
 
 
 # --- Errors ---------------------------------------------------------------

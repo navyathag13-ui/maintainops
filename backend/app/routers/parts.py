@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..logic import is_part_low_stock
+from ..logic import is_part_low_stock, part_urgency
 from ..models import Part
 from ..schemas import PartCreate, PartRead, PartUpdate
 
@@ -18,7 +18,9 @@ def _to_read(part: Part) -> PartRead:
         quantity_on_hand=part.quantity_on_hand,
         reorder_threshold=part.reorder_threshold,
         unit_cost=part.unit_cost,
+        is_critical=part.is_critical,
         is_low_stock=is_part_low_stock(part),
+        urgency=part_urgency(part),
     )
 
 

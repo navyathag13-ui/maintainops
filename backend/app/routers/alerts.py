@@ -3,9 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..logic import is_equipment_overdue, is_part_low_stock
+from ..logic import is_equipment_at_wear_limit, is_equipment_overdue, is_part_low_stock, part_urgency
 from ..models import Equipment, Part
-from ..schemas import LowStockPartRead, OverdueEquipmentRead
+from ..schemas import LowStockPartRead, OverdueEquipmentRead, WearLimitReachedRead
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -39,6 +39,24 @@ def get_low_stock(db: Session = Depends(get_db)):
             sku=p.sku,
             quantity_on_hand=p.quantity_on_hand,
             reorder_threshold=p.reorder_threshold,
+            is_critical=p.is_critical,
+            urgency=part_urgency(p),
         )
         for p in low_stock
+    ]
+
+
+@router.get("/discard-recommended", response_model=list[WearLimitReachedRead])
+def get_discard_recommended(db: Session = Depends(get_db)):
+    equipment = db.execute(select(Equipment).order_by(Equipment.id)).scalars().all()
+    at_limit = [e for e in equipment if is_equipment_at_wear_limit(e)]
+    return [
+        WearLimitReachedRead(
+            id=e.id,
+            name=e.name,
+            current_location=e.current_location,
+            usage_count=e.usage_count,
+            max_usage_count=e.max_usage_count,
+        )
+        for e in at_limit
     ]
