@@ -14,11 +14,11 @@ class EquipmentBase(BaseModel):
     type: str
     location: str
     status: EquipmentStatus = EquipmentStatus.OPERATIONAL
-    usage_hours: Decimal = Decimal("0")
-    maintenance_interval_hours: Decimal
+    usage_hours: Decimal = Field(default=Decimal("0"), ge=0)
+    maintenance_interval_hours: Decimal = Field(gt=0)
     # None = no wear limit, which is most equipment. Set only for gear
     # that's rated for a fixed number of uses.
-    max_usage_count: Optional[int] = None
+    max_usage_count: Optional[int] = Field(default=None, gt=0)
 
 
 class EquipmentCreate(EquipmentBase):
@@ -31,9 +31,9 @@ class EquipmentUpdate(BaseModel):
     location: Optional[str] = None
     current_location: Optional[str] = None
     status: Optional[EquipmentStatus] = None
-    usage_hours: Optional[Decimal] = None
-    maintenance_interval_hours: Optional[Decimal] = None
-    max_usage_count: Optional[int] = None
+    usage_hours: Optional[Decimal] = Field(default=None, ge=0)
+    maintenance_interval_hours: Optional[Decimal] = Field(default=None, gt=0)
+    max_usage_count: Optional[int] = Field(default=None, gt=0)
 
 
 class EquipmentRead(EquipmentBase):
@@ -54,9 +54,9 @@ class EquipmentRead(EquipmentBase):
 class PartBase(BaseModel):
     name: str
     sku: str
-    quantity_on_hand: int = 0
-    reorder_threshold: int = 0
-    unit_cost: Decimal
+    quantity_on_hand: int = Field(default=0, ge=0)
+    reorder_threshold: int = Field(default=0, ge=0)
+    unit_cost: Decimal = Field(ge=0)
     # Does running out actually stop work? Drives urgency, set by whoever
     # knows the part -- not inferred from usage data we don't track.
     is_critical: bool = False
@@ -69,9 +69,9 @@ class PartCreate(PartBase):
 class PartUpdate(BaseModel):
     name: Optional[str] = None
     sku: Optional[str] = None
-    quantity_on_hand: Optional[int] = None
-    reorder_threshold: Optional[int] = None
-    unit_cost: Optional[Decimal] = None
+    quantity_on_hand: Optional[int] = Field(default=None, ge=0)
+    reorder_threshold: Optional[int] = Field(default=None, ge=0)
+    unit_cost: Optional[Decimal] = Field(default=None, ge=0)
     is_critical: Optional[bool] = None
 
 
@@ -88,7 +88,7 @@ class PartRead(PartBase):
 
 class PartRestockCreate(BaseModel):
     quantity: int = Field(gt=0)
-    unit_cost: Decimal
+    unit_cost: Decimal = Field(ge=0)
     supplier: str
     notes: str = ""
 

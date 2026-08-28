@@ -66,7 +66,15 @@ def create_equipment(payload: EquipmentCreate, db: Session = Depends(get_db)):
 
 @router.patch("/{equipment_id}", response_model=EquipmentRead)
 def update_equipment(equipment_id: int, payload: EquipmentUpdate, db: Session = Depends(get_db)):
-    equipment = _get_or_404(db, equipment_id)
+    # Locked, unlike the plain db.get() in _get_or_404 -- this mutates the
+    # same row check_out_equipment/return_equipment lock before writing,
+    # so an in-flight checkout/return shouldn't be clobbered by a concurrent
+    # PATCH (or vice versa).
+    equipment = db.execute(
+        select(Equipment).where(Equipment.id == equipment_id).with_for_update()
+    ).scalar_one_or_none()
+    if equipment is None:
+        raise HTTPException(status_code=404, detail=f"Equipment {equipment_id} not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(equipment, field, value)
     db.flush()
@@ -76,6 +84,15 @@ def update_equipment(equipment_id: int, payload: EquipmentUpdate, db: Session = 
 @router.delete("/{equipment_id}", status_code=204)
 def delete_equipment(equipment_id: int, db: Session = Depends(get_db)):
     equipment = _get_or_404(db, equipment_id)
+    if any(loan.returned_at is None for loan in equipment.loans):
+        # Someone currently has this checked out. Deleting it would cascade
+        # away that loan record -- the borrower's outstanding checkout
+        # would just vanish with no error, warning, or record it ever
+        # needs returning.
+        raise HTTPException(
+            status_code=409,
+            detail=f"Equipment {equipment_id} is currently checked out and can't be deleted.",
+        )
     db.delete(equipment)
 
 

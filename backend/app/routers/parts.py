@@ -52,7 +52,15 @@ def create_part(payload: PartCreate, db: Session = Depends(get_db)):
 
 @router.patch("/{part_id}", response_model=PartRead)
 def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)):
-    part = _get_or_404(db, part_id)
+    # Locked, unlike the plain db.get() in _get_or_404 -- this mutates the
+    # same row record_maintenance/restock_part lock before writing, so an
+    # in-flight maintenance log or restock shouldn't be clobbered by a
+    # concurrent PATCH (or vice versa).
+    part = db.execute(
+        select(Part).where(Part.id == part_id).with_for_update()
+    ).scalar_one_or_none()
+    if part is None:
+        raise HTTPException(status_code=404, detail=f"Part {part_id} not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(part, field, value)
     db.flush()
@@ -62,6 +70,16 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
 @router.delete("/{part_id}", status_code=204)
 def delete_part(part_id: int, db: Session = Depends(get_db)):
     part = _get_or_404(db, part_id)
+    if part.usages:
+        # part_id is part of PartUsed's composite primary key, so it can't
+        # be nulled out the way a normal FK would on delete -- cascading
+        # would mean silently destroying the cost history those rows
+        # record (unit_cost_at_time snapshots this app otherwise goes out
+        # of its way to keep accurate and permanent). Block it instead.
+        raise HTTPException(
+            status_code=409,
+            detail=f"Part {part_id} has maintenance history and can't be deleted.",
+        )
     db.delete(part)
 
 

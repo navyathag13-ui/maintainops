@@ -14,17 +14,22 @@ export function EquipmentLoansPage() {
   const [returningId, setReturningId] = useState<number | null>(null);
 
   function refresh() {
-    api.listEquipmentLoans(true).then(setLoans);
+    return api.listEquipmentLoans(true).then(setLoans);
   }
 
-  useEffect(refresh, []);
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleReturn(loan: EquipmentLoan) {
     setReturningId(loan.id);
     try {
       await api.returnLoan(loan.id);
+      // Awaited: the returned loan needs to be out of `loans` before the
+      // button re-enables, or a fast second click could return it again.
+      await refresh();
       setToast(`${loan.equipment_name ?? "Equipment"} returned -- back at its home location.`);
-      refresh();
     } finally {
       setReturningId(null);
     }

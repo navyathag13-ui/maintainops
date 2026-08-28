@@ -70,6 +70,7 @@ export function PartsPage() {
 
       {restockingPart && (
         <RestockForm
+          key={restockingPart.id}
           part={restockingPart}
           onCancel={() => setRestockingPart(null)}
           onSuccess={(restock) => {

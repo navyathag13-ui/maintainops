@@ -148,13 +148,20 @@ def record_maintenance(
 
     parts_by_id: dict[int, Part] = {}
     shortfalls: list[StockShortfall] = []
-    for usage in parts_used:
+    # Lock parts in a canonical (id) order, not client-supplied order --
+    # two concurrent multi-part logs referencing the same parts in opposite
+    # order would otherwise each hold one lock and wait on the other,
+    # deadlocking on Postgres instead of one of them simply waiting.
+    for part_id in sorted({usage.part_id for usage in parts_used}):
         part = db.execute(
-            select(Part).where(Part.id == usage.part_id).with_for_update()
+            select(Part).where(Part.id == part_id).with_for_update()
         ).scalar_one_or_none()
         if part is None:
-            raise PartNotFoundError(usage.part_id)
-        parts_by_id[usage.part_id] = part
+            raise PartNotFoundError(part_id)
+        parts_by_id[part_id] = part
+
+    for usage in parts_used:
+        part = parts_by_id[usage.part_id]
         if part.quantity_on_hand < usage.quantity:
             shortfalls.append(
                 StockShortfall(
@@ -245,8 +252,16 @@ def return_equipment(db: Session, loan_id: int) -> EquipmentLoan:
     if loan.returned_at is not None:
         raise LoanAlreadyReturnedError(loan_id)
 
+    # Lock the Equipment row too, not just the loan -- this function writes
+    # current_location, the same column check_out_equipment locks Equipment
+    # for before writing. Without this, the two functions' writes to that
+    # column aren't serialized against each other.
+    equipment = db.execute(
+        select(Equipment).where(Equipment.id == loan.equipment_id).with_for_update()
+    ).scalar_one()
+
     loan.returned_at = datetime.now(timezone.utc)
-    loan.equipment.current_location = loan.equipment.location
+    equipment.current_location = equipment.location
 
     db.flush()
     return loan

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
 from .database import Base, engine
 from .logic import (
@@ -96,6 +97,21 @@ async def equipment_already_checked_out_handler(request: Request, exc: Equipment
 @app.exception_handler(LoanAlreadyReturnedError)
 async def loan_already_returned_handler(request: Request, exc: LoanAlreadyReturnedError):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+# Catches what the typed logic.py exceptions above don't: a duplicate SKU,
+# or deleting a part that still has maintenance history referencing it.
+# Without this, either surfaces as a raw 500 with a stack trace -- the
+# thing this app's error handling is otherwise careful to never do.
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "This request conflicts with existing data (e.g. a duplicate value, "
+            "or a record that's still referenced elsewhere)."
+        },
+    )
 
 
 app.include_router(equipment.router)

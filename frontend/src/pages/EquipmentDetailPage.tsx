@@ -22,9 +22,11 @@ export function EquipmentDetailPage() {
   const [returning, setReturning] = useState(false);
 
   function refresh() {
-    api.getEquipment(equipmentId).then(setEquipment);
-    api.getEquipmentHistory(equipmentId).then(setHistory);
-    api.getEquipmentLoans(equipmentId).then(setLoans);
+    return Promise.all([
+      api.getEquipment(equipmentId).then(setEquipment),
+      api.getEquipmentHistory(equipmentId).then(setHistory),
+      api.getEquipmentLoans(equipmentId).then(setLoans),
+    ]);
   }
 
   useEffect(() => {
@@ -41,8 +43,11 @@ export function EquipmentDetailPage() {
     setReturning(true);
     try {
       await api.returnLoan(activeLoan.id);
+      // Awaited: `loans` (and the derived activeLoan) must reflect the
+      // return before the button re-enables, or a fast second click could
+      // fire another return against the loan we just closed.
+      await refresh();
       setToast(`Returned -- back at ${equipment!.location}.`);
-      refresh();
     } finally {
       setReturning(false);
     }
