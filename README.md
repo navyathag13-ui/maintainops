@@ -80,6 +80,33 @@ Two rules make this trustworthy instead of just a log of good intentions:
 I deliberately kept "manager" and "borrower" as free-text fields rather than building a real
 staff directory for this pass — see [What I'd add next](#what-id-add-next-honestly).
 
+## What it costs to keep the fleet running
+
+Stock only ever went one direction in the first version of this app: down, consumed by
+maintenance. There was no record of how it came back — no restock log, so nobody could say
+when a part was last ordered, from whom, or at what price. And every part already had a
+`unit_cost` sitting right there in the database, completely unused for anything except
+display. Two features closed both gaps at once.
+
+**Restocking** is a shipment record — quantity received, price paid, supplier, an optional
+note — that adds to `quantity_on_hand` and updates the part's current price. Nothing exotic.
+
+**Cost reporting** is what that price actually enables. Every `MaintenanceLog` line item now
+snapshots the part's price *at the moment it was consumed* (`unit_cost_at_time`), not a live
+reference to the part's current price. That distinction matters: without it, restocking a
+part at a higher price next month would silently rewrite the cost of every job that used it
+last month. With the snapshot, a `/reports/maintenance-cost` endpoint can roll all of that up
+— by equipment, by month — and answer the question a shift supervisor actually has: *which
+piece of equipment is costing us the most to keep alive?* A second report,
+`/reports/parts-spend`, answers the mirror-image question — what have we spent buying
+inventory — using the same snapshot-don't-reference principle on restock records.
+
+![Reports — maintenance cost and parts spend, charted](docs/screenshots/reports.png)
+
+The two numbers on that dashboard are deliberately not required to match. Maintenance cost is
+what got *consumed*; parts spend is what got *purchased*. You restock ahead of consumption,
+so on any given day they're telling you two different, both-true things.
+
 ## What I ran into building it, and what I'd tell someone doing this again
 
 **A bug the tests caught, not code review.** Early on, `record_maintenance` created the
@@ -127,6 +154,51 @@ created a way for them to disagree (a bug, a failed transaction, a manual DB fix
 one and not the other). `is_checked_out` in the API response is *computed* from the loan
 table on every read instead. Slightly more query work, zero chance of the flag lying to you.
 
+**A deliberate bug-hunt turned up eight real ones.** Once the feature set felt done, I ran a
+dedicated review pass across the whole app — four independent reviewers (line-by-line
+correctness, API contract mismatches, frontend state/race bugs, cross-cutting cleanup), each
+verified against the actual code before I touched anything. Some of what came out of it:
+
+- `record_maintenance` locked the parts in a multi-part log in whatever order the client sent
+  them, not a canonical order. Two concurrent logs referencing the same two parts in opposite
+  order could deadlock each other on Postgres — a classic lock-ordering bug. Fixed by locking
+  in sorted `part_id` order regardless of request order.
+- There was no handler for `IntegrityError` anywhere, so a duplicate SKU came back as a raw
+  500 — directly contradicting the "always JSON, never a stack trace" error contract I'd
+  written into this same README. Chasing that down turned up something worse: deleting a
+  part that has maintenance history doesn't raise `IntegrityError` at all. `parts_used.part_id`
+  is part of a *composite primary key*, so SQLAlchemy can't null it out the way a normal
+  foreign key would on delete — it throws a bare `AssertionError` instead, which no handler
+  catches either. The honest fix wasn't a handler, it was a business rule: block deleting a
+  part with maintenance history (and, same principle, block deleting equipment that's
+  currently checked out), both with a clean 409 instead of a crash either way.
+- Half the money and quantity fields in the API had no floor. `PATCH /parts/{id}` with
+  `quantity_on_hand: -50` was accepted — silently corrupting every report and low-stock check
+  downstream, with none of `logic.py`'s careful validation ever seeing it, because the bad
+  value never went through `logic.py` at all.
+- `return_equipment` locked the loan row it was closing but not the equipment row it was also
+  writing to (`current_location`) — `check_out_equipment` locks that same row before writing
+  it. Same gap on both `PATCH` endpoints, which read via a plain unlocked fetch while every
+  other mutator of those rows takes a row lock.
+
+None of these showed up in the 41 tests that existed at the time — they're exactly the class
+of bug unit tests miss: constraint interactions, lock ordering, and error paths nobody had a
+reason to hit on the happy path. Full list of what was found and fixed is in the commit
+history from that pass.
+
+**The Reports charts rendered nothing, and it wasn't a data bug.** First pass at the cost
+charts used the latest Recharts release. Numbers were correct — the axes scaled to the right
+range — but the bars and lines themselves never appeared: empty `<g>` elements in the DOM,
+no path or rect inside. Downgrading to Recharts' older stable line changed nothing, which
+ruled out a version-specific regression. The actual cause: Recharts mounts a bar or line's
+shape through an animated entrance driven by `requestAnimationFrame`, and the environment I
+was testing in throttles rAF for a backgrounded/unfocused tab -- so the animation queued and
+never advanced, and the shape never mounted. That's not a quirk unique to one dev setup:
+every real browser throttles rAF in a tab that isn't focused. A user who opens the Reports
+page in a background tab would hit the identical blank chart. Fixed by setting
+`isAnimationActive={false}` on both charts -- instant, correct rendering regardless of
+whether the tab has focus, at the cost of losing the entrance animation.
+
 ## Architecture
 
 ```
@@ -134,14 +206,16 @@ maintainops/
 ├── docker-compose.yml
 ├── backend/
 │   ├── app/
-│   │   ├── models.py        Equipment, Part, MaintenanceLog, PartUsed, EquipmentLoan (SQLAlchemy 2.0)
-│   │   ├── logic.py         Business logic -- framework-agnostic, no FastAPI/HTTP imports
+│   │   ├── models.py        Equipment, Part, MaintenanceLog, PartUsed, EquipmentLoan,
+│   │   │                    PartRestock (SQLAlchemy 2.0)
+│   │   ├── logic.py         Mutating business logic -- framework-agnostic, no FastAPI/HTTP
+│   │   ├── reports.py       Read-only aggregation: maintenance_cost_report, parts_spend_report
 │   │   ├── schemas.py       Pydantic request/response models
 │   │   ├── database.py      Engine, session factory, commit-on-success get_db()
 │   │   ├── main.py          FastAPI app, CORS, exception -> HTTP status mapping
 │   │   └── routers/         equipment.py, equipment_loans.py, parts.py,
-│   │                        maintenance_logs.py, alerts.py
-│   └── tests/test_logic.py  41 tests against the business logic layer
+│   │                        maintenance_logs.py, alerts.py, reports.py
+│   └── tests/test_logic.py  53 tests against the business logic layer
 └── frontend/
     └── src/
         ├── api/client.ts     Typed fetch wrapper, one function per endpoint
@@ -149,17 +223,22 @@ maintainops/
         ├── utils.ts          Maintenance-status thresholding, formatting
         ├── components/       MaintenanceStatusBadge, LowStockBadge, WearLimitBadge,
         │                     StatCard, LogMaintenanceForm, CheckOutForm,
-        │                     NewEquipmentForm, Toast, EmptyState
+        │                     NewEquipmentForm, RestockForm, Toast, EmptyState
         ├── pages/            DashboardPage, EquipmentListPage, EquipmentDetailPage,
-        │                     EquipmentLoansPage, PartsPage
+        │                     EquipmentLoansPage, PartsPage, ReportsPage
         └── App.tsx           Routing + nav
 ```
 
 `logic.py` never imports FastAPI. It takes a SQLAlchemy `Session` and plain arguments, and
 raises its own exception types (`EquipmentNotFoundError`, `InsufficientStockError`,
 `EquipmentAlreadyCheckedOutError`, ...). The router layer's only job is catching those and
-mapping them to status codes. That split is why the 41 tests in `test_logic.py` run in under
+mapping them to status codes. That split is why the 53 tests in `test_logic.py` run in under
 half a second against SQLite, with zero HTTP machinery involved.
+
+`reports.py` is a deliberate second module, not more functions bundled into `logic.py`:
+`logic.py` mutates and never runs a bare aggregate query; `reports.py` reads and never writes.
+Splitting them means you can tell which one a new function belongs in just by asking whether
+it changes anything.
 
 ## The business logic itself
 
@@ -201,9 +280,18 @@ def part_urgency(part: Part) -> Literal["none", "watch", "urgent"]:
 `check_out_equipment` follows the same shape: locks the equipment row (`SELECT ... FOR
 UPDATE`), checks for an existing unreturned `EquipmentLoan` on that equipment and rejects if
 one exists, then creates the loan, moves `current_location` to the project, and increments
-`usage_count`. `return_equipment` sets `returned_at` and moves `current_location` back to
-`location` (the home spot). Neither commits, same as `record_maintenance` -- same transaction
-ownership rule throughout the app.
+`usage_count`. `return_equipment` locks *both* the loan row and the equipment row (a fix from
+the bug-hunt above) before setting `returned_at` and moving `current_location` back to
+`location` (the home spot). `restock_part` locks the part row, adds to `quantity_on_hand`, and
+updates `unit_cost` to the price just paid. None of these commit, same as `record_maintenance`
+-- same transaction-ownership rule throughout the app.
+
+`reports.py`'s two functions are pure reads: `maintenance_cost_report` walks every
+`MaintenanceLog`, sums `quantity * unit_cost_at_time` per log, and groups the result by
+equipment and by month. `parts_spend_report` does the same over `PartRestock` rows, grouped by
+part and by month. Both are plain Python aggregation over ORM objects rather than SQL
+`GROUP BY` -- deliberate at this project's scale, since it sidesteps writing aggregate SQL that
+only works on one of SQLite (dev) or Postgres (prod).
 
 ## API Reference
 
@@ -223,18 +311,26 @@ ownership rule throughout the app.
 | POST   | `/parts`                      | Create a part                                                          |
 | GET    | `/parts/{id}`                 | Get one part                                                           |
 | PATCH  | `/parts/{id}`                 | Partial update                                                          |
-| DELETE | `/parts/{id}`                 | Delete                                                                    |
+| DELETE | `/parts/{id}`                 | Delete (409 if it has maintenance history)                                |
+| POST   | `/parts/{id}/restock`         | Receive a shipment -- quantity, price paid, supplier, notes               |
+| GET    | `/parts/{id}/restocks`        | Restock history for this part, newest first                                |
 | POST   | `/maintenance-logs`           | Log maintenance, consuming parts and resetting the baseline               |
 | GET    | `/alerts/overdue-maintenance` | Equipment currently overdue, with hours-overdue                             |
 | GET    | `/alerts/low-stock`           | Parts at or below their reorder threshold, with urgency                      |
 | GET    | `/alerts/discard-recommended` | Equipment that has hit its wear-count limit                                   |
+| GET    | `/reports/maintenance-cost`   | Cost of parts consumed, by equipment and by month                              |
+| GET    | `/reports/parts-spend`        | Cost of parts purchased, by part and by month                                   |
 
-`404` for a missing id. `400` for validation failures (insufficient stock — with a
-`shortfalls` array telling you exactly which parts and by how much — invalid quantity,
-duplicate part in one request). `409` for a request that's well-formed but conflicts with the
-resource's current state (checking out something already checked out — the response includes
-`active_loan_id` — or returning a loan twice). `201` on create, `204` on delete. Errors are
-always JSON, never a raw stack trace.
+`404` for a missing id. `422` for a value Pydantic itself rejects (negative stock, a zero or
+negative maintenance interval, a non-positive quantity). `400` for validation failures that
+require checking business state, not just shape (insufficient stock — with a `shortfalls`
+array telling you exactly which parts and by how much — or a duplicate part in one request).
+`409` for a request that's well-formed but conflicts with the resource's current state:
+checking out something already checked out (response includes `active_loan_id`), returning a
+loan twice, deleting equipment that's currently checked out, or deleting a part that has
+maintenance history. `201` on create, `204` on delete. Errors are always JSON, never a raw
+stack trace — including database-constraint violations like a duplicate SKU, which get the
+same clean-409 treatment via a generic `IntegrityError` handler.
 
 Swagger UI is at `/docs`, ReDoc at `/redoc` — both work standalone with no frontend running.
 
@@ -274,7 +370,7 @@ npm run dev
 
 ## Testing
 
-`backend/tests/test_logic.py` — 41 cases against the business-logic functions, run against a
+`backend/tests/test_logic.py` — 53 cases against the business-logic functions, run against a
 fresh in-memory SQLite database per test. Beyond the obvious correct-path cases, it
 specifically covers:
 
@@ -291,7 +387,19 @@ specifically covers:
 - Checkout while already checked out (rejected), return while already returned (rejected),
   return-then-recheckout (allowed, and counts as a fresh use), a checkout that lands exactly
   on the wear limit (allowed, but flags `is_equipment_at_wear_limit`)
+- A maintenance log's cost snapshot matches the part's price at that moment, and stays put
+  even after the part's price changes later — the whole point of `unit_cost_at_time`
+- Restock validation (zero/negative quantity rejected) and that a restock never touches an
+  *existing* log's cost snapshot, only the part's going-forward price
+- Both cost reports on empty data (zero, not an error) and on a multi-equipment,
+  multi-month scenario, checked against hand-computed totals
 - Unknown equipment id / unknown part id / unknown loan id
+
+Business-rule correctness is unit-tested this thoroughly; the bug-hunt findings above (lock
+ordering, missing validation, the delete-guard crash) were not caught by this suite -- they're
+a different failure class (constraint interactions, concurrency, error-path coverage) that a
+business-logic test suite over a single in-memory session structurally can't see. Verified
+those by hand against a running server instead; see the commit for exactly what was checked.
 
 ## Tech Stack
 
@@ -302,6 +410,7 @@ specifically covers:
 | Database      | PostgreSQL (Docker Compose)                              |
 | Backend tests | pytest                                                    |
 | Frontend      | React 19 + TypeScript, Vite, React Router                  |
+| Charts        | Recharts (pinned to 2.x -- see below)                          |
 | Containers    | Docker Compose (Postgres + backend + frontend/nginx)          |
 | API docs      | FastAPI's built-in Swagger UI / OpenAPI                          |
 
@@ -329,3 +438,12 @@ specifically covers:
   calendars, and company announcements came up as real needs while building this, but they're
   a different data model and a different story than equipment tracking — that's a separate
   project, not a module bolted onto this one.
+- **N+1 queries in `alerts.py` and `reports.py`.** Both load a whole table into memory and
+  filter/aggregate in Python rather than pushing the work into SQL, and neither eager-loads
+  the relationships it touches (`log.equipment`, `log.parts_used`, `r.part`) -- fine at
+  today's scale, a real cost once a fleet or a maintenance history gets into the thousands of
+  rows. Known, not yet worth the added complexity for a tool this size.
+- **Alembic migrations, now doubly true.** The bug-hunt pass added `ge=0`/`gt=0` constraints
+  at the Pydantic layer, not the database layer -- a real Postgres `CHECK` constraint would
+  close that gap for good (and for any client that isn't this API), but adding one to a table
+  that might already have rows is exactly the kind of change `create_all()` can't do safely.
