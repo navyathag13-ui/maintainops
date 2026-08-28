@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
-from .database import Base, engine
+from .database import Base, SessionLocal, engine
 from .logic import (
     DuplicatePartInRequestError,
     EmployeeNotFoundError,
@@ -31,6 +31,7 @@ from .routers import (
     projects,
     reports,
 )
+from .seed import is_seeded, seed_demo_data
 
 
 @asynccontextmanager
@@ -38,6 +39,19 @@ async def lifespan(app: FastAPI):
     # No migration tool at this project's scale -- create_all is idempotent
     # and enough for a small internal tool. Swap for Alembic if this grows.
     Base.metadata.create_all(bind=engine)
+
+    # Demo data on first startup only -- a fresh clone should look like a
+    # system a small company has already been using, not empty tables.
+    # Guarded on the equipment table being empty, so this never re-seeds
+    # (or duplicates) on a normal restart.
+    db = SessionLocal()
+    try:
+        if not is_seeded(db):
+            seed_demo_data(db)
+            db.commit()
+    finally:
+        db.close()
+
     yield
 
 
