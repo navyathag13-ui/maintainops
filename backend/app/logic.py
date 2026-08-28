@@ -1,11 +1,23 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Equipment, EquipmentLoan, MaintenanceLog, Part, PartRestock, PartUsed
+from .models import (
+    ActivityEvent,
+    ActivityEventType,
+    Employee,
+    Equipment,
+    EquipmentLoan,
+    MaintenanceLog,
+    Part,
+    PartRestock,
+    PartUsed,
+    Project,
+    ProjectPartUsage,
+)
 
 
 def is_equipment_overdue(equipment: Equipment) -> bool:
@@ -110,6 +122,58 @@ class LoanAlreadyReturnedError(Exception):
         super().__init__(f"Loan {loan_id} was already returned")
 
 
+class ProjectNotFoundError(Exception):
+    def __init__(self, project_id: int):
+        self.project_id = project_id
+        super().__init__(f"Project {project_id} not found")
+
+
+class EmployeeNotFoundError(Exception):
+    def __init__(self, employee_id: int):
+        self.employee_id = employee_id
+        super().__init__(f"Employee {employee_id} not found")
+
+
+def _log_activity(
+    db: Session,
+    event_type: ActivityEventType,
+    description: str,
+    *,
+    project_id: Optional[int] = None,
+    employee_id: Optional[int] = None,
+    equipment_id: Optional[int] = None,
+    part_id: Optional[int] = None,
+) -> ActivityEvent:
+    """Every user-visible action in the app funnels through here so the
+    activity feed is a real side effect of state changes, not a page that
+    has to be told about them separately. `description` is written out in
+    full at call time -- see ActivityEvent's docstring for why."""
+    event = ActivityEvent(
+        event_type=event_type,
+        description=description,
+        project_id=project_id,
+        employee_id=employee_id,
+        equipment_id=equipment_id,
+        part_id=part_id,
+        occurred_at=datetime.now(timezone.utc),
+    )
+    db.add(event)
+    return event
+
+
+def _maybe_log_low_stock_crossed(db: Session, part: Part, was_low_stock_before: bool) -> None:
+    """Fires only on the transition into low stock, not on every
+    already-low consumption -- otherwise using a part that's already
+    below threshold would spam the feed with a duplicate event every time."""
+    if not was_low_stock_before and is_part_low_stock(part):
+        _log_activity(
+            db,
+            ActivityEventType.LOW_STOCK_REACHED,
+            f"{part.name} stock fell below its reorder threshold ({part.quantity_on_hand} remaining).",
+            part_id=part.id,
+        )
+
+
 def record_maintenance(
     db: Session,
     equipment_id: int,
@@ -182,6 +246,7 @@ def record_maintenance(
 
     for usage in parts_used:
         part = parts_by_id[usage.part_id]
+        was_low_stock = is_part_low_stock(part)
         part.quantity_on_hand -= usage.quantity
         log.parts_used.append(
             PartUsed(
@@ -190,8 +255,16 @@ def record_maintenance(
                 unit_cost_at_time=part.unit_cost,
             )
         )
+        _maybe_log_low_stock_crossed(db, part, was_low_stock)
 
     equipment.last_maintenance_usage_hours = equipment.usage_hours
+
+    _log_activity(
+        db,
+        ActivityEventType.MAINTENANCE_LOGGED,
+        f"Maintenance completed on {equipment.name}.",
+        equipment_id=equipment.id,
+    )
 
     db.add(log)
     db.flush()
@@ -201,21 +274,39 @@ def record_maintenance(
 def check_out_equipment(
     db: Session,
     equipment_id: int,
-    project: str,
-    manager_name: str,
-    borrower_name: str,
+    project_id: int,
+    borrower_employee_id: int,
     expected_return_at: datetime,
 ) -> EquipmentLoan:
-    """Borrow a piece of equipment. Rejects the checkout if it's already
-    out to someone else -- one active (unreturned) loan per piece of
-    equipment at a time. Moves current_location to the project, and counts
-    this as one "use" toward the equipment's wear limit, if it has one.
+    """Borrow a piece of equipment for a project. Rejects the checkout if
+    it's already out to someone else -- one active (unreturned) loan per
+    piece of equipment at a time. Moves current_location to the project,
+    and counts this as one "use" toward the equipment's wear limit, if it
+    has one.
+
+    The manager isn't a parameter -- it's derived from the project's own
+    `manager_id`, the same way the rest of this app derives state instead
+    of asking the caller to repeat something already on record.
+
+    `EquipmentLoan.project` / `manager_name` / `borrower_name` (plain
+    strings) get populated here from the resolved records, so every
+    existing reader of those columns keeps working unchanged -- the FK
+    columns (`project_id`, `borrower_employee_id`) are the real link the
+    new project/employee features are built on.
     """
     equipment = db.execute(
         select(Equipment).where(Equipment.id == equipment_id).with_for_update()
     ).scalar_one_or_none()
     if equipment is None:
         raise EquipmentNotFoundError(equipment_id)
+
+    project = db.get(Project, project_id)
+    if project is None:
+        raise ProjectNotFoundError(project_id)
+
+    borrower = db.get(Employee, borrower_employee_id)
+    if borrower is None:
+        raise EmployeeNotFoundError(borrower_employee_id)
 
     active_loan = db.execute(
         select(EquipmentLoan).where(
@@ -227,15 +318,26 @@ def check_out_equipment(
         raise EquipmentAlreadyCheckedOutError(equipment_id, active_loan.id)
 
     loan = EquipmentLoan(
-        project=project,
-        manager_name=manager_name,
-        borrower_name=borrower_name,
+        project=project.name,
+        manager_name=project.manager.name if project.manager else "Unassigned",
+        borrower_name=borrower.name,
+        project_id=project.id,
+        borrower_employee_id=borrower.id,
         checked_out_at=datetime.now(timezone.utc),
         expected_return_at=expected_return_at,
     )
     equipment.loans.append(loan)
-    equipment.current_location = project
+    equipment.current_location = project.name
     equipment.usage_count += 1
+
+    _log_activity(
+        db,
+        ActivityEventType.EQUIPMENT_CHECKED_OUT,
+        f"{borrower.name} checked out {equipment.name} for {project.name}.",
+        project_id=project.id,
+        employee_id=borrower.id,
+        equipment_id=equipment.id,
+    )
 
     db.flush()
     return loan
@@ -262,6 +364,15 @@ def return_equipment(db: Session, loan_id: int) -> EquipmentLoan:
 
     loan.returned_at = datetime.now(timezone.utc)
     equipment.current_location = equipment.location
+
+    _log_activity(
+        db,
+        ActivityEventType.EQUIPMENT_RETURNED,
+        f"{loan.borrower_name} returned {equipment.name}.",
+        project_id=loan.project_id,
+        employee_id=loan.borrower_employee_id,
+        equipment_id=equipment.id,
+    )
 
     db.flush()
     return loan
@@ -303,5 +414,101 @@ def restock_part(
     part.quantity_on_hand += quantity
     part.unit_cost = unit_cost
 
+    _log_activity(
+        db,
+        ActivityEventType.PART_RESTOCKED,
+        f"Received {quantity} x {part.name} from {supplier}.",
+        part_id=part.id,
+    )
+
     db.flush()
     return restock
+
+
+def use_parts_on_project(
+    db: Session,
+    project_id: int,
+    employee_id: Optional[int],
+    parts_used: list[PartUsageInput],
+    note: str = "",
+) -> list[ProjectPartUsage]:
+    """A project consuming parts directly (not through a maintenance job).
+    Same shape as record_maintenance: validate everything, lock every part
+    in canonical order, check all requested quantities against current
+    stock before mutating any of them, and reject the whole request if one
+    part is short -- no partial deduction.
+    """
+    seen_part_ids: set[int] = set()
+    for usage in parts_used:
+        if usage.quantity <= 0:
+            raise InvalidQuantityError(usage.part_id, usage.quantity)
+        if usage.part_id in seen_part_ids:
+            raise DuplicatePartInRequestError(usage.part_id)
+        seen_part_ids.add(usage.part_id)
+
+    project = db.get(Project, project_id)
+    if project is None:
+        raise ProjectNotFoundError(project_id)
+
+    employee: Optional[Employee] = None
+    if employee_id is not None:
+        employee = db.get(Employee, employee_id)
+        if employee is None:
+            raise EmployeeNotFoundError(employee_id)
+
+    parts_by_id: dict[int, Part] = {}
+    shortfalls: list[StockShortfall] = []
+    for part_id in sorted({usage.part_id for usage in parts_used}):
+        part = db.execute(
+            select(Part).where(Part.id == part_id).with_for_update()
+        ).scalar_one_or_none()
+        if part is None:
+            raise PartNotFoundError(part_id)
+        parts_by_id[part_id] = part
+
+    for usage in parts_used:
+        part = parts_by_id[usage.part_id]
+        if part.quantity_on_hand < usage.quantity:
+            shortfalls.append(
+                StockShortfall(
+                    part_id=usage.part_id,
+                    requested=usage.quantity,
+                    available=part.quantity_on_hand,
+                )
+            )
+
+    if shortfalls:
+        raise InsufficientStockError(shortfalls)
+
+    usages: list[ProjectPartUsage] = []
+    now = datetime.now(timezone.utc)
+    for usage in parts_used:
+        part = parts_by_id[usage.part_id]
+        was_low_stock = is_part_low_stock(part)
+        part.quantity_on_hand -= usage.quantity
+
+        record = ProjectPartUsage(
+            project_id=project.id,
+            part_id=part.id,
+            employee_id=employee.id if employee else None,
+            quantity=usage.quantity,
+            unit_cost_at_time=part.unit_cost,
+            note=note,
+            used_at=now,
+        )
+        db.add(record)
+        usages.append(record)
+
+        who = f"{employee.name} used" if employee else f"{project.name} used"
+        _log_activity(
+            db,
+            ActivityEventType.PART_USED_ON_PROJECT,
+            f"{who} {usage.quantity} {part.name} on {project.name}.",
+            project_id=project.id,
+            employee_id=employee.id if employee else None,
+            part_id=part.id,
+        )
+        _maybe_log_low_stock_crossed(db, part, was_low_stock)
+
+    db.flush()
+    return usages

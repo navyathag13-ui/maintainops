@@ -4,6 +4,7 @@ import pytest
 
 from app.logic import (
     DuplicatePartInRequestError,
+    EmployeeNotFoundError,
     EquipmentAlreadyCheckedOutError,
     EquipmentNotFoundError,
     InsufficientStockError,
@@ -12,6 +13,7 @@ from app.logic import (
     LoanNotFoundError,
     PartNotFoundError,
     PartUsageInput,
+    ProjectNotFoundError,
     check_out_equipment,
     is_equipment_at_wear_limit,
     is_equipment_overdue,
@@ -20,8 +22,21 @@ from app.logic import (
     record_maintenance,
     restock_part,
     return_equipment,
+    use_parts_on_project,
 )
-from app.models import Equipment, EquipmentLoan, MaintenanceLog, Part
+from app.models import (
+    ActivityEvent,
+    ActivityEventType,
+    Employee,
+    EmployeeRole,
+    Equipment,
+    EquipmentLoan,
+    MaintenanceLog,
+    Part,
+    Project,
+    ProjectPartUsage,
+    ProjectStatus,
+)
 from app.reports import maintenance_cost_report, parts_spend_report
 
 
@@ -53,6 +68,27 @@ def make_part(**overrides) -> Part:
     )
     defaults.update(overrides)
     return Part(**defaults)
+
+
+def make_project(**overrides) -> Project:
+    defaults = dict(
+        name="House #1",
+        status=ProjectStatus.ACTIVE,
+        created_at=datetime.now(timezone.utc),
+    )
+    defaults.update(overrides)
+    return Project(**defaults)
+
+
+def make_employee(**overrides) -> Employee:
+    defaults = dict(
+        name="Alex Carter",
+        role=EmployeeRole.TECHNICIAN,
+        active=True,
+        created_at=datetime.now(timezone.utc),
+    )
+    defaults.update(overrides)
+    return Employee(**defaults)
 
 
 # --- is_equipment_overdue --------------------------------------------------
@@ -398,35 +434,87 @@ class TestPartUrgency:
 class TestCheckOutAndReturnEquipment:
     def test_checkout_creates_loan_moves_location_and_counts_a_use(self, db_session):
         equipment = make_equipment(location="Garage Back Storage 3", max_usage_count=5)
-        db_session.add(equipment)
+        manager = make_employee(name="Jake Morgan", role=EmployeeRole.MANAGER)
+        borrower = make_employee(name="Alex Carter")
+        project = make_project(name="House #1")
+        db_session.add_all([equipment, manager, borrower, project])
+        db_session.flush()
+        project.manager_id = manager.id
         db_session.flush()
 
         loan = check_out_equipment(
             db_session,
             equipment_id=equipment.id,
-            project="Project #45",
-            manager_name="Dana",
-            borrower_name="Yusuf",
+            project_id=project.id,
+            borrower_employee_id=borrower.id,
             expected_return_at=datetime.now(timezone.utc),
         )
 
         assert isinstance(loan, EquipmentLoan)
         assert loan.returned_at is None
-        assert equipment.current_location == "Project #45"
+        assert loan.project_id == project.id
+        assert loan.borrower_employee_id == borrower.id
+        # String fields derived from the linked records, not typed by hand --
+        # every existing reader of these columns keeps working unchanged.
+        assert loan.project == "House #1"
+        assert loan.manager_name == "Jake Morgan"
+        assert loan.borrower_name == "Alex Carter"
+        assert equipment.current_location == "House #1"
         assert equipment.usage_count == 1
         assert is_equipment_at_wear_limit(equipment) is False
 
+    def test_checkout_derives_manager_from_project_not_a_parameter(self, db_session):
+        # There's no manager_name parameter at all anymore -- it can only
+        # come from the project's own manager_id.
+        equipment = make_equipment()
+        manager = make_employee(name="Maya Patel", role=EmployeeRole.MANAGER)
+        borrower = make_employee(name="Ethan Davis", role=EmployeeRole.EQUIPMENT_OPERATOR)
+        project = make_project(name="Mall Construction #4")
+        db_session.add_all([equipment, manager, borrower, project])
+        db_session.flush()
+        project.manager_id = manager.id
+        db_session.flush()
+
+        loan = check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project_id=project.id,
+            borrower_employee_id=borrower.id,
+            expected_return_at=datetime.now(timezone.utc),
+        )
+
+        assert loan.manager_name == "Maya Patel"
+
+    def test_checkout_with_no_project_manager_falls_back_cleanly(self, db_session):
+        equipment = make_equipment()
+        borrower = make_employee()
+        project = make_project()  # no manager_id set
+        db_session.add_all([equipment, borrower, project])
+        db_session.flush()
+
+        loan = check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project_id=project.id,
+            borrower_employee_id=borrower.id,
+            expected_return_at=datetime.now(timezone.utc),
+        )
+
+        assert loan.manager_name == "Unassigned"
+
     def test_checkout_while_already_checked_out_is_rejected(self, db_session):
         equipment = make_equipment()
-        db_session.add(equipment)
+        employee = make_employee()
+        project_a = make_project(name="House #1")
+        project_b = make_project(name="Mall Construction #4")
+        db_session.add_all([equipment, employee, project_a, project_b])
         db_session.flush()
 
         check_out_equipment(
             db_session,
             equipment_id=equipment.id,
-            project="Project #45",
-            manager_name="Dana",
-            borrower_name="Yusuf",
+            project_id=project_a.id,
+            borrower_employee_id=employee.id,
             expected_return_at=datetime.now(timezone.utc),
         )
 
@@ -434,41 +522,75 @@ class TestCheckOutAndReturnEquipment:
             check_out_equipment(
                 db_session,
                 equipment_id=equipment.id,
-                project="Project #99",
-                manager_name="Dana",
-                borrower_name="Someone else",
+                project_id=project_b.id,
+                borrower_employee_id=employee.id,
                 expected_return_at=datetime.now(timezone.utc),
             )
 
         # Still out at the first project -- the second attempt didn't move it.
-        assert equipment.current_location == "Project #45"
+        assert equipment.current_location == "House #1"
         assert equipment.usage_count == 1
 
     def test_checkout_unknown_equipment_raises(self, db_session):
+        employee = make_employee()
+        project = make_project()
+        db_session.add_all([employee, project])
+        db_session.flush()
+
         with pytest.raises(EquipmentNotFoundError):
             check_out_equipment(
                 db_session,
                 equipment_id=999,
-                project="Project #45",
-                manager_name="Dana",
-                borrower_name="Yusuf",
+                project_id=project.id,
+                borrower_employee_id=employee.id,
+                expected_return_at=datetime.now(timezone.utc),
+            )
+
+    def test_checkout_unknown_project_raises(self, db_session):
+        equipment = make_equipment()
+        employee = make_employee()
+        db_session.add_all([equipment, employee])
+        db_session.flush()
+
+        with pytest.raises(ProjectNotFoundError):
+            check_out_equipment(
+                db_session,
+                equipment_id=equipment.id,
+                project_id=999,
+                borrower_employee_id=employee.id,
+                expected_return_at=datetime.now(timezone.utc),
+            )
+
+    def test_checkout_unknown_employee_raises(self, db_session):
+        equipment = make_equipment()
+        project = make_project()
+        db_session.add_all([equipment, project])
+        db_session.flush()
+
+        with pytest.raises(EmployeeNotFoundError):
+            check_out_equipment(
+                db_session,
+                equipment_id=equipment.id,
+                project_id=project.id,
+                borrower_employee_id=999,
                 expected_return_at=datetime.now(timezone.utc),
             )
 
     def test_return_moves_equipment_back_to_home_location(self, db_session):
         equipment = make_equipment(location="Garage Back Storage 3")
-        db_session.add(equipment)
+        employee = make_employee()
+        project = make_project()
+        db_session.add_all([equipment, employee, project])
         db_session.flush()
 
         loan = check_out_equipment(
             db_session,
             equipment_id=equipment.id,
-            project="Project #45",
-            manager_name="Dana",
-            borrower_name="Yusuf",
+            project_id=project.id,
+            borrower_employee_id=employee.id,
             expected_return_at=datetime.now(timezone.utc),
         )
-        assert equipment.current_location == "Project #45"
+        assert equipment.current_location == project.name
 
         returned = return_equipment(db_session, loan.id)
 
@@ -477,15 +599,18 @@ class TestCheckOutAndReturnEquipment:
 
     def test_return_allows_a_fresh_checkout_afterward(self, db_session):
         equipment = make_equipment(max_usage_count=5)
-        db_session.add(equipment)
+        employee_a = make_employee(name="Alex Carter")
+        employee_b = make_employee(name="Priya Shah")
+        project_a = make_project(name="House #1")
+        project_b = make_project(name="Mall Construction #4")
+        db_session.add_all([equipment, employee_a, employee_b, project_a, project_b])
         db_session.flush()
 
         first_loan = check_out_equipment(
             db_session,
             equipment_id=equipment.id,
-            project="Project #45",
-            manager_name="Dana",
-            borrower_name="Yusuf",
+            project_id=project_a.id,
+            borrower_employee_id=employee_a.id,
             expected_return_at=datetime.now(timezone.utc),
         )
         return_equipment(db_session, first_loan.id)
@@ -493,27 +618,27 @@ class TestCheckOutAndReturnEquipment:
         second_loan = check_out_equipment(
             db_session,
             equipment_id=equipment.id,
-            project="Project #99",
-            manager_name="Dana",
-            borrower_name="Priya",
+            project_id=project_b.id,
+            borrower_employee_id=employee_b.id,
             expected_return_at=datetime.now(timezone.utc),
         )
 
         assert second_loan.id != first_loan.id
-        assert equipment.current_location == "Project #99"
+        assert equipment.current_location == "Mall Construction #4"
         assert equipment.usage_count == 2
 
     def test_return_already_returned_loan_is_rejected(self, db_session):
         equipment = make_equipment()
-        db_session.add(equipment)
+        employee = make_employee()
+        project = make_project()
+        db_session.add_all([equipment, employee, project])
         db_session.flush()
 
         loan = check_out_equipment(
             db_session,
             equipment_id=equipment.id,
-            project="Project #45",
-            manager_name="Dana",
-            borrower_name="Yusuf",
+            project_id=project.id,
+            borrower_employee_id=employee.id,
             expected_return_at=datetime.now(timezone.utc),
         )
         return_equipment(db_session, loan.id)
@@ -530,20 +655,45 @@ class TestCheckOutAndReturnEquipment:
         # flag, not a block. Discard is a human decision, not an
         # auto-enforced lockout.
         equipment = make_equipment(usage_count=4, max_usage_count=5)
-        db_session.add(equipment)
+        employee = make_employee()
+        project = make_project()
+        db_session.add_all([equipment, employee, project])
         db_session.flush()
 
         check_out_equipment(
             db_session,
             equipment_id=equipment.id,
-            project="Project #45",
-            manager_name="Dana",
-            borrower_name="Yusuf",
+            project_id=project.id,
+            borrower_employee_id=employee.id,
             expected_return_at=datetime.now(timezone.utc),
         )
 
         assert equipment.usage_count == 5
         assert is_equipment_at_wear_limit(equipment) is True
+
+    def test_checkout_and_return_each_log_one_activity_event(self, db_session):
+        equipment = make_equipment(name="Generator #02")
+        employee = make_employee(name="Ethan Davis")
+        project = make_project(name="Mall Construction #4")
+        db_session.add_all([equipment, employee, project])
+        db_session.flush()
+
+        loan = check_out_equipment(
+            db_session,
+            equipment_id=equipment.id,
+            project_id=project.id,
+            borrower_employee_id=employee.id,
+            expected_return_at=datetime.now(timezone.utc),
+        )
+        return_equipment(db_session, loan.id)
+
+        events = db_session.query(ActivityEvent).order_by(ActivityEvent.id).all()
+        assert [e.event_type for e in events] == [
+            ActivityEventType.EQUIPMENT_CHECKED_OUT,
+            ActivityEventType.EQUIPMENT_RETURNED,
+        ]
+        assert "Ethan Davis checked out Generator #02 for Mall Construction #4" in events[0].description
+        assert "Ethan Davis returned Generator #02" in events[1].description
 
 
 # --- record_maintenance cost snapshot ----------------------------------------
@@ -750,3 +900,184 @@ class TestPartsSpendReport:
         assert report.by_part[0].total_cost == 100
         assert report.by_part[1].part_name == "Filter"
         assert report.by_part[1].total_cost == 50
+
+
+# --- use_parts_on_project ------------------------------------------------------
+
+
+class TestUsePartsOnProject:
+    def test_happy_path_decrements_stock_and_records_usage(self, db_session):
+        project = make_project(name="House #1")
+        employee = make_employee(name="Alex Carter")
+        part = make_part(name="Wood Screws", quantity_on_hand=100, reorder_threshold=85, unit_cost=0.10)
+        db_session.add_all([project, employee, part])
+        db_session.flush()
+
+        usages = use_parts_on_project(
+            db_session,
+            project_id=project.id,
+            employee_id=employee.id,
+            parts_used=[PartUsageInput(part_id=part.id, quantity=20)],
+        )
+
+        assert len(usages) == 1
+        assert usages[0].quantity == 20
+        assert usages[0].unit_cost_at_time == part.unit_cost
+        assert part.quantity_on_hand == 80
+
+    def test_employee_is_optional(self, db_session):
+        project = make_project()
+        part = make_part(quantity_on_hand=10)
+        db_session.add_all([project, part])
+        db_session.flush()
+
+        usages = use_parts_on_project(
+            db_session,
+            project_id=project.id,
+            employee_id=None,
+            parts_used=[PartUsageInput(part_id=part.id, quantity=1)],
+        )
+
+        assert usages[0].employee_id is None
+
+    def test_insufficient_stock_on_one_part_rejects_whole_request(self, db_session):
+        project = make_project()
+        part_ok = make_part(name="Wood Screws", sku="WS-1", quantity_on_hand=100)
+        part_short = make_part(name="Anchor Bolts", sku="AB-1", quantity_on_hand=2)
+        db_session.add_all([project, part_ok, part_short])
+        db_session.flush()
+
+        with pytest.raises(InsufficientStockError) as exc_info:
+            use_parts_on_project(
+                db_session,
+                project_id=project.id,
+                employee_id=None,
+                parts_used=[
+                    PartUsageInput(part_id=part_ok.id, quantity=5),
+                    PartUsageInput(part_id=part_short.id, quantity=10),
+                ],
+            )
+
+        assert {s.part_id for s in exc_info.value.shortfalls} == {part_short.id}
+        # All-or-nothing: the plentiful part must be untouched too.
+        assert part_ok.quantity_on_hand == 100
+        assert part_short.quantity_on_hand == 2
+
+    def test_zero_quantity_rejected(self, db_session):
+        project = make_project()
+        part = make_part(quantity_on_hand=10)
+        db_session.add_all([project, part])
+        db_session.flush()
+
+        with pytest.raises(InvalidQuantityError):
+            use_parts_on_project(
+                db_session,
+                project_id=project.id,
+                employee_id=None,
+                parts_used=[PartUsageInput(part_id=part.id, quantity=0)],
+            )
+        assert part.quantity_on_hand == 10
+
+    def test_duplicate_part_rejected(self, db_session):
+        project = make_project()
+        part = make_part(quantity_on_hand=10)
+        db_session.add_all([project, part])
+        db_session.flush()
+
+        with pytest.raises(DuplicatePartInRequestError):
+            use_parts_on_project(
+                db_session,
+                project_id=project.id,
+                employee_id=None,
+                parts_used=[
+                    PartUsageInput(part_id=part.id, quantity=1),
+                    PartUsageInput(part_id=part.id, quantity=2),
+                ],
+            )
+
+    def test_unknown_project_raises(self, db_session):
+        part = make_part(quantity_on_hand=10)
+        db_session.add(part)
+        db_session.flush()
+
+        with pytest.raises(ProjectNotFoundError):
+            use_parts_on_project(
+                db_session,
+                project_id=999,
+                employee_id=None,
+                parts_used=[PartUsageInput(part_id=part.id, quantity=1)],
+            )
+
+    def test_unknown_employee_raises(self, db_session):
+        project = make_project()
+        part = make_part(quantity_on_hand=10)
+        db_session.add_all([project, part])
+        db_session.flush()
+
+        with pytest.raises(EmployeeNotFoundError):
+            use_parts_on_project(
+                db_session,
+                project_id=project.id,
+                employee_id=999,
+                parts_used=[PartUsageInput(part_id=part.id, quantity=1)],
+            )
+
+    def test_unknown_part_raises(self, db_session):
+        project = make_project()
+        db_session.add(project)
+        db_session.flush()
+
+        with pytest.raises(PartNotFoundError):
+            use_parts_on_project(
+                db_session,
+                project_id=project.id,
+                employee_id=None,
+                parts_used=[PartUsageInput(part_id=999, quantity=1)],
+            )
+
+    def test_crossing_reorder_threshold_logs_low_stock_activity_once(self, db_session):
+        project = make_project()
+        part = make_part(name="Grinding Disc", quantity_on_hand=6, reorder_threshold=5)
+        db_session.add_all([project, part])
+        db_session.flush()
+
+        # First use: 6 -> 5, which is already <= threshold (5) -- crosses now.
+        use_parts_on_project(
+            db_session, project_id=project.id, employee_id=None,
+            parts_used=[PartUsageInput(part_id=part.id, quantity=1)],
+        )
+        # Second use: 5 -> 4, still low, but already was -- no duplicate event.
+        use_parts_on_project(
+            db_session, project_id=project.id, employee_id=None,
+            parts_used=[PartUsageInput(part_id=part.id, quantity=1)],
+        )
+
+        low_stock_events = (
+            db_session.query(ActivityEvent)
+            .filter(ActivityEvent.event_type == ActivityEventType.LOW_STOCK_REACHED)
+            .all()
+        )
+        assert len(low_stock_events) == 1
+        assert part.quantity_on_hand == 4
+
+    def test_logs_one_activity_event_per_part_used(self, db_session):
+        project = make_project(name="House #1")
+        employee = make_employee(name="Priya Shah")
+        part = make_part(name="Drill Bits", quantity_on_hand=50)
+        db_session.add_all([project, employee, part])
+        db_session.flush()
+
+        use_parts_on_project(
+            db_session,
+            project_id=project.id,
+            employee_id=employee.id,
+            parts_used=[PartUsageInput(part_id=part.id, quantity=3)],
+        )
+
+        events = (
+            db_session.query(ActivityEvent)
+            .filter(ActivityEvent.event_type == ActivityEventType.PART_USED_ON_PROJECT)
+            .all()
+        )
+        assert len(events) == 1
+        assert "Priya Shah used 3 Drill Bits on House #1" in events[0].description
