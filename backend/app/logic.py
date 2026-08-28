@@ -134,7 +134,7 @@ class EmployeeNotFoundError(Exception):
         super().__init__(f"Employee {employee_id} not found")
 
 
-def _log_activity(
+def log_activity(
     db: Session,
     event_type: ActivityEventType,
     description: str,
@@ -166,7 +166,7 @@ def _maybe_log_low_stock_crossed(db: Session, part: Part, was_low_stock_before: 
     already-low consumption -- otherwise using a part that's already
     below threshold would spam the feed with a duplicate event every time."""
     if not was_low_stock_before and is_part_low_stock(part):
-        _log_activity(
+        log_activity(
             db,
             ActivityEventType.LOW_STOCK_REACHED,
             f"{part.name} stock fell below its reorder threshold ({part.quantity_on_hand} remaining).",
@@ -259,7 +259,7 @@ def record_maintenance(
 
     equipment.last_maintenance_usage_hours = equipment.usage_hours
 
-    _log_activity(
+    log_activity(
         db,
         ActivityEventType.MAINTENANCE_LOGGED,
         f"Maintenance completed on {equipment.name}.",
@@ -330,7 +330,7 @@ def check_out_equipment(
     equipment.current_location = project.name
     equipment.usage_count += 1
 
-    _log_activity(
+    log_activity(
         db,
         ActivityEventType.EQUIPMENT_CHECKED_OUT,
         f"{borrower.name} checked out {equipment.name} for {project.name}.",
@@ -365,7 +365,7 @@ def return_equipment(db: Session, loan_id: int) -> EquipmentLoan:
     loan.returned_at = datetime.now(timezone.utc)
     equipment.current_location = equipment.location
 
-    _log_activity(
+    log_activity(
         db,
         ActivityEventType.EQUIPMENT_RETURNED,
         f"{loan.borrower_name} returned {equipment.name}.",
@@ -414,7 +414,7 @@ def restock_part(
     part.quantity_on_hand += quantity
     part.unit_cost = unit_cost
 
-    _log_activity(
+    log_activity(
         db,
         ActivityEventType.PART_RESTOCKED,
         f"Received {quantity} x {part.name} from {supplier}.",
@@ -500,7 +500,7 @@ def use_parts_on_project(
         usages.append(record)
 
         who = f"{employee.name} used" if employee else f"{project.name} used"
-        _log_activity(
+        log_activity(
             db,
             ActivityEventType.PART_USED_ON_PROJECT,
             f"{who} {usage.quantity} {part.name} on {project.name}.",

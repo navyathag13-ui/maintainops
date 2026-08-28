@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from .database import Base, engine
 from .logic import (
     DuplicatePartInRequestError,
+    EmployeeNotFoundError,
     EquipmentAlreadyCheckedOutError,
     EquipmentNotFoundError,
     InsufficientStockError,
@@ -16,8 +17,20 @@ from .logic import (
     LoanAlreadyReturnedError,
     LoanNotFoundError,
     PartNotFoundError,
+    ProjectNotFoundError,
 )
-from .routers import alerts, equipment, equipment_loans, maintenance_logs, parts, reports
+from .routers import (
+    activity,
+    alerts,
+    dashboard,
+    employees,
+    equipment,
+    equipment_loans,
+    maintenance_logs,
+    parts,
+    projects,
+    reports,
+)
 
 
 @asynccontextmanager
@@ -84,6 +97,16 @@ async def loan_not_found_handler(request: Request, exc: LoanNotFoundError):
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
+@app.exception_handler(ProjectNotFoundError)
+async def project_not_found_handler(request: Request, exc: ProjectNotFoundError):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(EmployeeNotFoundError)
+async def employee_not_found_handler(request: Request, exc: EmployeeNotFoundError):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
 # 409 Conflict, not 400: the request itself is well-formed, it's the
 # equipment/loan's current state that makes it invalid right now.
 @app.exception_handler(EquipmentAlreadyCheckedOutError)
@@ -120,6 +143,10 @@ app.include_router(parts.router)
 app.include_router(maintenance_logs.router)
 app.include_router(alerts.router)
 app.include_router(reports.router)
+app.include_router(projects.router)
+app.include_router(employees.router)
+app.include_router(activity.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/health")

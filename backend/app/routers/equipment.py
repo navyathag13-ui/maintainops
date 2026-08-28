@@ -108,9 +108,8 @@ def checkout_equipment(equipment_id: int, payload: EquipmentLoanCreate, db: Sess
     loan = check_out_equipment(
         db,
         equipment_id=equipment_id,
-        project=payload.project,
-        manager_name=payload.manager_name,
-        borrower_name=payload.borrower_name,
+        project_id=payload.project_id,
+        borrower_employee_id=payload.borrower_employee_id,
         expected_return_at=payload.expected_return_at,
     )
     return EquipmentLoanRead.from_orm_with_equipment_name(loan)
