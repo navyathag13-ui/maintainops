@@ -50,16 +50,16 @@ gets thrown in a truck for a job, the truck goes to three more sites that week, 
 later nobody can say whether it's still out, who has it, or whether it even came back to the
 right shelf. So checking equipment out is a first-class action, not an afterthought:
 
-> **What are you borrowing:** Safety Harness A
-> **For which project:** House Build #123
-> **Who's the manager:** Dana
-> **Who's borrowing it:** Yusuf
+> **What are you borrowing:** Cordless Drill #01
+> **For which project:** House #1
+> **Manager:** Jake Morgan *(filled in automatically — House #1's manager)*
+> **Borrowed by:** Priya Shah
 > **Expected return:** 9/4/2026
 
-Hit submit and the equipment's `current_location` moves from *Garage Back Storage 3* to
-*House Build #123* immediately — the equipment list, the equipment's own detail page, and the
-dashboard all reflect it without anyone touching a spreadsheet. Returning it moves the location
-back and closes out the loan.
+Hit submit and the equipment's `current_location` moves from *Garage / Storage* to *House #1*
+immediately — the equipment list, the equipment's own detail page, the project it now belongs
+to, the borrower's employee page, and the dashboard all reflect it without anyone touching a
+spreadsheet. Returning it moves the location back and closes out the loan.
 
 ![Borrowed Equipment — who has what, and when it's due back](docs/screenshots/borrowed.png)
 
@@ -77,8 +77,11 @@ Two rules make this trustworthy instead of just a log of good intentions:
   *deciding to actually discard something* is a judgment call for a person holding it in their
   hands, not something software should auto-enforce on a maybe-stale count.
 
-I deliberately kept "manager" and "borrower" as free-text fields rather than building a real
-staff directory for this pass — see [What I'd add next](#what-id-add-next-honestly).
+"Manager" and "borrower" started out as free-text fields — the fastest path to something
+usable for the first pass, but nothing stopped "Yusuf" and "yusuf" from being two different
+people in the data. Both are real records now (see the next section), and the manager field
+in particular stopped being something you type at all: pick the project, and its manager comes
+back from the database, not from whatever the person filling out the form remembers to type.
 
 ## What it costs to keep the fleet running
 
@@ -106,6 +109,75 @@ inventory — using the same snapshot-don't-reference principle on restock recor
 The two numbers on that dashboard are deliberately not required to match. Maintenance cost is
 what got *consumed*; parts spend is what got *purchased*. You restock ahead of consumption,
 so on any given day they're telling you two different, both-true things.
+
+## Projects and Employees, not seven separate apps
+
+The first version of this app tracked equipment, parts, and loans well, but each screen was
+its own island — checking equipment out meant typing a project name and a manager's name into
+a text box, and there was no way to ask "what does House #1 actually have on site right now"
+without mentally cross-referencing three different pages. That's the same spreadsheet problem
+this app was supposed to replace, just moved one level up.
+
+`Project` and `Employee` are real tables now, and they sit in the middle of everything else:
+
+- **A project has a manager, a status, a team, equipment on site, and parts it's consumed** —
+  all computed from the same rows that already existed for equipment loans and maintenance,
+  not new counters that have to be kept in sync by hand. `equipment_count` on a project isn't
+  a column that gets incremented and decremented at checkout/return time and can drift out of
+  sync with reality; it's `len(equipment currently on active loans for this project)`, counted
+  fresh on every read. If it's ever wrong, it's wrong because the underlying loan data is
+  wrong, not because two code paths disagreed about when to update a counter.
+- **`ProjectPartUsage` is `record_maintenance`'s multi-part validation, reused, not
+  reinvented, for a different reason to consume parts.** A tech grabbing 20 wood screws for
+  framing isn't fixing a piece of equipment, but the exact same rule applies: check every
+  requested part against current stock before writing anything, and reject the whole request
+  if one part's short. `use_parts_on_project` is a near-mirror of `record_maintenance` for
+  exactly that reason — same all-or-nothing shape, same row-locking, different destination
+  table.
+- **Every mutation writes an `ActivityEvent`, with its description frozen at creation time** —
+  same "snapshot, don't reference" principle as `unit_cost_at_time` on a maintenance log,
+  applied to a sentence instead of a price. "Alex Carter used 20 Wood Screws on House #1"
+  stays readable and correct even if Alex changes teams or House #1 gets renamed six months
+  later, because it's stored text, not a join.
+
+![Project detail — team, equipment on site, parts used, and what's overdue, in one place](docs/screenshots/project-detail.png)
+
+A project's page is where this pays off. Checking equipment out or logging parts usage from
+inside a project doesn't require re-typing which project you're on — it's already fixed, so
+the checkout form only asks who's borrowing and what. And any maintenance warning on equipment
+currently on that project surfaces right there too, as a banner that links straight to the
+equipment — you don't have to already know something's overdue to find out from the project
+page that it is.
+
+`Employee` deliberately did **not** turn into a staff directory. There's a name, a role
+(manager / technician / equipment operator / site worker), and an active flag — enough to make
+"who's borrowing this" and "who's the manager" real foreign keys instead of typos-in-waiting,
+not enough to become HR software. No pay rate, no schedule, no contact info. The moment this
+needs time-off requests or shift calendars, that's a different project wired to the same
+`Employee` table, not more columns bolted onto this one.
+
+## The Dashboard, rebuilt around "what needs a decision"
+
+The original dashboard was a couple of charts. The rebuilt one leads with three panels —
+**Overdue Equipment**, **Low Stock Parts**, **Discard Recommended** — each one clickable
+straight through to the record that needs attention, because "3 things are overdue" isn't
+useful without "which 3, and can I click on one right now." Everything below that follows the
+same rule: Active Projects as cards with real computed metrics (no project card shows a number
+that isn't backed by an actual query), a compact Equipment by Location bar list instead of a
+pie chart nobody needed, Due Soon sorted by nearest return with overdue-for-return visually
+distinct from merely-due-soon, and a Recent Activity feed at the bottom.
+
+![Dashboard — requires attention, active projects, and what happened, all live](docs/screenshots/dashboard.png)
+
+All of it comes from one `GET /dashboard/summary` call. Early on this could have been eight
+separate fetches — one per panel — each mirroring a query that `alerts.py` already had for its
+own endpoints. Instead `dashboard.py` imports and reuses `alerts.py`'s own read functions
+(`equipment_to_overdue_read`, `part_to_low_stock_read`, `equipment_to_wear_limit_read`) rather
+than copying the underlying SQL a second time, and the router assembles all of it — plus
+projects, activity, and the location breakdown — behind one endpoint with eager-loaded
+relationships. One request, one render, nothing hardcoded: every number on that page changes
+the instant the data behind it does, because there isn't a separate "dashboard data" path to
+fall out of sync with the real tables.
 
 ## What I ran into building it, and what I'd tell someone doing this again
 
@@ -186,6 +258,25 @@ of bug unit tests miss: constraint interactions, lock ordering, and error paths 
 reason to hit on the happy path. Full list of what was found and fixed is in the commit
 history from that pass.
 
+**SQLite doesn't round-trip timezone-aware datetimes the way Postgres does.** Comparing a
+loan's `expected_return_at` against `datetime.now(timezone.utc)` to compute "due back soon"
+threw `TypeError: can't compare offset-naive and offset-aware datetimes` — but only when
+running against the SQLite fallback used for local dev and this README's own screenshots, not
+against the real Postgres target. A `DateTime(timezone=True)` column writes the UTC-aware
+value fine on both databases, but SQLite silently drops the tzinfo on the way back out; Postgres
+doesn't. Since local SQLite is a real, documented way to run this app, that's a real bug, not
+a test-environment quirk to shrug off — fixed with a small `as_aware_utc()` helper that treats
+a naive value as UTC before comparing, used everywhere `projects.py` and `dashboard.py` do that
+comparison.
+
+**Caught myself reimplementing a formula that already existed.** First draft of the project
+detail endpoint recomputed "is this equipment overdue" inline — copying the
+`usage_hours - last_maintenance_usage_hours >= maintenance_interval_hours` comparison a second
+time instead of calling `is_equipment_overdue()`, which already existed and was already tested.
+Caught it before it shipped, but it's exactly the kind of drift bug that's easy to introduce
+under time pressure: two copies of the same formula work identically today and diverge silently
+the day one of them gets tweaked and the other doesn't.
+
 **The Reports charts rendered nothing, and it wasn't a data bug.** First pass at the cost
 charts used the latest Recharts release. Numbers were correct — the axes scaled to the right
 range — but the bars and lines themselves never appeared: empty `<g>` elements in the DOM,
@@ -207,15 +298,21 @@ maintainops/
 ├── backend/
 │   ├── app/
 │   │   ├── models.py        Equipment, Part, MaintenanceLog, PartUsed, EquipmentLoan,
-│   │   │                    PartRestock (SQLAlchemy 2.0)
+│   │   │                    PartRestock, Project, Employee, ProjectEmployee,
+│   │   │                    ProjectPartUsage, ActivityEvent (SQLAlchemy 2.0)
 │   │   ├── logic.py         Mutating business logic -- framework-agnostic, no FastAPI/HTTP
 │   │   ├── reports.py       Read-only aggregation: maintenance_cost_report, parts_spend_report
+│   │   ├── projects.py      Read-only aggregation: project summaries and detail views
+│   │   ├── dashboard.py     Read-only aggregation: the single dashboard-summary query
+│   │   ├── seed.py          Deterministic demo data -- employees, projects, equipment,
+│   │   │                    parts, and scripted scenarios run through real logic.py calls
 │   │   ├── schemas.py       Pydantic request/response models
 │   │   ├── database.py      Engine, session factory, commit-on-success get_db()
-│   │   ├── main.py          FastAPI app, CORS, exception -> HTTP status mapping
+│   │   ├── main.py          FastAPI app, CORS, exception -> HTTP status mapping, auto-seed
 │   │   └── routers/         equipment.py, equipment_loans.py, parts.py,
-│   │                        maintenance_logs.py, alerts.py, reports.py
-│   └── tests/test_logic.py  53 tests against the business logic layer
+│   │                        maintenance_logs.py, alerts.py, reports.py, projects.py,
+│   │                        employees.py, activity.py, dashboard.py
+│   └── tests/test_logic.py  68 tests against the business logic layer
 └── frontend/
     └── src/
         ├── api/client.ts     Typed fetch wrapper, one function per endpoint
@@ -223,22 +320,29 @@ maintainops/
         ├── utils.ts          Maintenance-status thresholding, formatting
         ├── components/       MaintenanceStatusBadge, LowStockBadge, WearLimitBadge,
         │                     StatCard, LogMaintenanceForm, CheckOutForm,
-        │                     NewEquipmentForm, RestockForm, Toast, EmptyState
+        │                     NewEquipmentForm, RestockForm, Toast, EmptyState,
+        │                     ProjectCard, ProjectStatusBadge, NewProjectForm,
+        │                     UseProjectPartsForm
         ├── pages/            DashboardPage, EquipmentListPage, EquipmentDetailPage,
-        │                     EquipmentLoansPage, PartsPage, ReportsPage
+        │                     EquipmentLoansPage, PartsPage, ReportsPage, ProjectsPage,
+        │                     ProjectDetailPage, EmployeesPage, EmployeeDetailPage,
+        │                     ActivityPage
         └── App.tsx           Routing + nav
 ```
 
 `logic.py` never imports FastAPI. It takes a SQLAlchemy `Session` and plain arguments, and
 raises its own exception types (`EquipmentNotFoundError`, `InsufficientStockError`,
-`EquipmentAlreadyCheckedOutError`, ...). The router layer's only job is catching those and
-mapping them to status codes. That split is why the 53 tests in `test_logic.py` run in under
-half a second against SQLite, with zero HTTP machinery involved.
+`EquipmentAlreadyCheckedOutError`, `ProjectNotFoundError`, `EmployeeNotFoundError`, ...). The
+router layer's only job is catching those and mapping them to status codes. That split is why
+the 68 tests in `test_logic.py` run in a third of a second against SQLite, with zero HTTP
+machinery involved.
 
-`reports.py` is a deliberate second module, not more functions bundled into `logic.py`:
-`logic.py` mutates and never runs a bare aggregate query; `reports.py` reads and never writes.
-Splitting them means you can tell which one a new function belongs in just by asking whether
-it changes anything.
+`reports.py`, `projects.py`, and `dashboard.py` are deliberately separate from `logic.py`, not
+more functions bundled into it: `logic.py` mutates and never runs a bare aggregate query; the
+other three read and never write. Splitting them means you can tell which module a new function
+belongs in just by asking whether it changes anything. `dashboard.py` in particular reuses
+`alerts.py`'s own row-to-response functions instead of re-deriving the same overdue/low-stock
+logic a second time -- one query shape, one place it can be wrong.
 
 ## The business logic itself
 
@@ -280,17 +384,31 @@ def part_urgency(part: Part) -> Literal["none", "watch", "urgent"]:
 `check_out_equipment` follows the same shape: locks the equipment row (`SELECT ... FOR
 UPDATE`), checks for an existing unreturned `EquipmentLoan` on that equipment and rejects if
 one exists, then creates the loan, moves `current_location` to the project, and increments
-`usage_count`. `return_equipment` locks *both* the loan row and the equipment row (a fix from
-the bug-hunt above) before setting `returned_at` and moving `current_location` back to
-`location` (the home spot). `restock_part` locks the part row, adds to `quantity_on_hand`, and
-updates `unit_cost` to the price just paid. None of these commit, same as `record_maintenance`
--- same transaction-ownership rule throughout the app.
+`usage_count`. It takes a `project_id` and a `borrower_employee_id`, not free text -- the
+manager isn't a parameter at all, it's read off `project.manager` at the moment the loan is
+created, so there's no path where a caller supplies a manager that doesn't match the project's
+actual one. `return_equipment` locks *both* the loan row and the equipment row (a fix from the
+bug-hunt above) before setting `returned_at` and moving `current_location` back to `location`
+(the home spot). `restock_part` locks the part row, adds to `quantity_on_hand`, and updates
+`unit_cost` to the price just paid. `use_parts_on_project` mirrors `record_maintenance` step
+for step -- validate all requested parts, lock them in sorted `part_id` order, check all of
+them against stock before writing any of them, reject the whole request on any shortfall --
+just written into a `ProjectPartUsage` row instead of a `PartUsed` row. None of these commit,
+same as `record_maintenance` -- same transaction-ownership rule throughout the app. Every one
+of them ends by calling `log_activity()`, which writes one `ActivityEvent` with its description
+already rendered to text -- the read side never reconstructs "what happened" from the mutation,
+it just returns what was written down at the time.
 
-`reports.py`'s two functions are pure reads: `maintenance_cost_report` walks every
-`MaintenanceLog`, sums `quantity * unit_cost_at_time` per log, and groups the result by
-equipment and by month. `parts_spend_report` does the same over `PartRestock` rows, grouped by
-part and by month. Both are plain Python aggregation over ORM objects rather than SQL
-`GROUP BY` -- deliberate at this project's scale, since it sidesteps writing aggregate SQL that
+`reports.py`, `projects.py`, and `dashboard.py` are pure reads. `maintenance_cost_report` walks
+every `MaintenanceLog`, sums `quantity * unit_cost_at_time` per log, and groups the result by
+equipment and by month; `parts_spend_report` does the same over `PartRestock` rows. `projects.py`
+builds a project's summary and detail view the same way -- equipment count, worker count, and
+parts-used count are all derived from the live loan/team/usage rows at request time, never
+stored. `dashboard.py`'s `get_dashboard_summary` is the one place that does real eager-loading
+(`selectinload`) rather than plain Python aggregation, specifically because it assembles seven
+different views in one call and an N+1 there would mean seven separate N+1s. All four modules
+favor plain Python aggregation over ORM objects rather than SQL `GROUP BY` where the volume
+allows it -- deliberate at this project's scale, since it sidesteps writing aggregate SQL that
 only works on one of SQLite (dev) or Postgres (prod).
 
 ## API Reference
@@ -304,7 +422,7 @@ only works on one of SQLite (dev) or Postgres (prod).
 | DELETE | `/equipment/{id}`             | Delete                                                              |
 | GET    | `/equipment/{id}/history`     | Maintenance logs for this equipment, newest first                    |
 | GET    | `/equipment/{id}/loans`       | Borrow history for this equipment, newest first                       |
-| POST   | `/equipment/{id}/checkout`    | Borrow it -- project, manager, borrower, expected return                |
+| POST   | `/equipment/{id}/checkout`    | Borrow it -- project id, borrower employee id, expected return (manager derives from the project) |
 | POST   | `/equipment-loans/{id}/return`| Return a loan; moves the equipment back to its home location             |
 | GET    | `/equipment-loans`            | All loans; `?active=true` for currently-out only, `?active=false` for returned |
 | GET    | `/parts`                      | List all parts                                                       |
@@ -320,6 +438,19 @@ only works on one of SQLite (dev) or Postgres (prod).
 | GET    | `/alerts/discard-recommended` | Equipment that has hit its wear-count limit                                   |
 | GET    | `/reports/maintenance-cost`   | Cost of parts consumed, by equipment and by month                              |
 | GET    | `/reports/parts-spend`        | Cost of parts purchased, by part and by month                                   |
+| GET    | `/projects`                   | List all projects, with computed summary metrics                                |
+| POST   | `/projects`                   | Create a project                                                                |
+| GET    | `/projects/{id}`               | Full project detail -- team, equipment on site, parts used, maintenance warnings |
+| PATCH  | `/projects/{id}`               | Partial update                                                                   |
+| GET    | `/projects/{id}/activity`      | Activity events for this project, newest first                                   |
+| POST   | `/projects/{id}/employees`     | Assign an employee to the project's team                                          |
+| POST   | `/projects/{id}/parts-usage`   | Consume parts on this project, all-or-nothing, same as maintenance                 |
+| GET    | `/employees`                   | List all employees                                                                |
+| POST   | `/employees`                   | Create an employee                                                                  |
+| GET    | `/employees/{id}`              | Employee detail -- current projects, equipment currently borrowed, recent activity   |
+| PATCH  | `/employees/{id}`              | Partial update                                                                       |
+| GET    | `/activity`                    | Full activity feed, newest first                                                      |
+| GET    | `/dashboard/summary`           | Everything the dashboard renders, in one call -- no per-widget fetching                |
 
 `404` for a missing id. `422` for a value Pydantic itself rejects (negative stock, a zero or
 negative maintenance interval, a non-positive quantity). `400` for validation failures that
@@ -348,6 +479,13 @@ docker-compose up --build
 - API + Swagger docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 - Postgres: `localhost:5432` (`maintainops` / `maintainops`)
 
+The first time the backend starts against an empty database, it seeds itself automatically —
+10 employees, 8 projects, ~44 equipment, 40 parts, and a deliberately mixed set of maintenance
+and stock states, so the app is fully populated the moment it comes up. `random.Random(42)`
+makes the "randomized" variety deterministic, so this happens the same way every time. It never
+re-seeds or duplicates on a normal restart — only the first boot against a genuinely empty
+`equipment` table triggers it.
+
 ### Running locally without Docker
 
 ```bash
@@ -370,7 +508,7 @@ npm run dev
 
 ## Testing
 
-`backend/tests/test_logic.py` — 53 cases against the business-logic functions, run against a
+`backend/tests/test_logic.py` — 68 cases against the business-logic functions, run against a
 fresh in-memory SQLite database per test. Beyond the obvious correct-path cases, it
 specifically covers:
 
@@ -394,6 +532,16 @@ specifically covers:
 - Both cost reports on empty data (zero, not an error) and on a multi-equipment,
   multi-month scenario, checked against hand-computed totals
 - Unknown equipment id / unknown part id / unknown loan id
+- Checkout derives its manager from the project, not from a parameter -- and falls back
+  cleanly when a project has no manager assigned yet, instead of crashing
+- Checkout against an unknown project or unknown employee is rejected before any row is
+  touched
+- Checkout and return each write exactly one `ActivityEvent`, not zero and not two
+- `use_parts_on_project`'s own suite (9 cases): the happy path, an optional employee, a
+  multi-part request where one part is short -- proving the *other* part's quantity is
+  untouched, zero/negative and duplicate-part requests rejected, unknown project/employee/part,
+  the low-stock threshold crossing firing its `ActivityEvent` exactly once (not once per part
+  in the same request), and one activity event per part consumed
 
 Business-rule correctness is unit-tested this thoroughly; the bug-hunt findings above (lock
 ordering, missing validation, the delete-guard crash) were not caught by this suite -- they're
@@ -429,15 +577,19 @@ those by hand against a running server instead; see the commit for exactly what 
 - **Barcode/QR scan on the parts dropdown, and on equipment for checkout.** The manual
   dropdown is fine for a demo; a tech standing at a shelf would rather scan a bin or asset
   label than search a list.
-- **Real borrower/manager records instead of free text.** I chose free text deliberately for
-  this pass — it's the fastest path to something usable, and it upgrades cleanly later
-  (existing loan rows just keep their typed name, new ones can reference a person record). The
-  tradeoff is real, though: nothing stops "Yusuf" and "yusuf" and "Yousef" from being three
-  different people in the data.
-- **A staff/scheduling layer is explicitly not part of this project.** People, time-off, team
+- **A staff/scheduling layer is still explicitly not part of this project.** `Employee` now
+  exists, but on purpose it's just a name, a role, and an active flag. Time-off, shift
   calendars, and company announcements came up as real needs while building this, but they're
-  a different data model and a different story than equipment tracking — that's a separate
-  project, not a module bolted onto this one.
+  a different data model and a different story than equipment tracking — a separate project
+  wired to the same table, not a module bolted onto this one.
+- **"Click a part → see recent project usage" isn't built yet.** Parts don't have a detail page
+  at all right now — they're managed inline from the Parts Inventory list. `ProjectPartUsage`
+  already has everything needed to answer "which projects have been eating through Wood
+  Screws," it just doesn't have a page to show it on yet.
+- **Project cards don't have a timeline or Gantt view.** `start_date` and `expected_end_date`
+  exist on every project and currently just sit in the detail page as text. Multiple concurrent
+  projects with overlapping equipment needs is exactly the situation where a simple timeline
+  would earn its keep — not built this pass.
 - **N+1 queries in `alerts.py` and `reports.py`.** Both load a whole table into memory and
   filter/aggregate in Python rather than pushing the work into SQL, and neither eager-loads
   the relationships it touches (`log.equipment`, `log.parts_used`, `r.part`) -- fine at
