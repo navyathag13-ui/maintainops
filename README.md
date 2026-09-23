@@ -637,7 +637,7 @@ I used [Harbor](https://github.com/harbor-framework/harbor), a framework for run
 **What happened**
 
 - It fixed **all five tasks on all three attempts: 15 of 15 runs**, as judged by the verifiers.
-- Time to first token was 1.1 to 3.7 seconds per run.
+- Time to first token was between 1.1 and 4.0 seconds, and it varied a lot between attempts at the same task, so I would not read anything into differences between tasks.
 - I expected the concurrency bug to be the hardest. It was the quickest every time (8 to 9 turns). The most effort went into a medium task, deleting a part that has maintenance history (22 to 35 turns).
 - I also reproduced the lock-ordering bug as a real deadlock on PostgreSQL 16: the old code deadlocks, the fixed code does not.
 
