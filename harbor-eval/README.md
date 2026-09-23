@@ -6,22 +6,13 @@ fix the real defects a four-reviewer audit of this codebase found and fixed in
 commit [`edefd22`](../../../commit/edefd22) ("Fix 8 real bugs found by a
 full-codebase review").
 
-Full methodology, results, and honest caveats live in [`results.md`](results.md)
-once Phase 2/3 (actually running the tasks) has happened. This README tracks
-what's been done and what's still blocked.
+Full methodology, results, and honest caveats live in [`results.md`](results.md).
 
 ## Status
 
-- **Phase 0 (environment setup): done, with two open dependencies.**
-  No Docker, Docker alternative, or Homebrew were available in the sandbox
-  this evaluation was built in. Harbor itself was installed cleanly via `uv`
-  (Python 3.13, no admin rights needed). Two things are still required before
-  Phase 2 can run:
-  1. A sandboxed execution backend (Docker Desktop, Apple's `container` CLI,
-     or a cloud sandbox provider) — Harbor needs one to actually run agents
-     against task containers.
-  2. An `ANTHROPIC_API_KEY` — Harbor drives Claude Code as a subprocess and
-     bills it per-token, separately from any Claude Code subscription.
+- **Phase 0 (environment setup): done.** Harbor installed via `uv` (Python 3.13);
+  Docker Desktop provides the sandbox; Claude Code runs as the agent under test,
+  authenticated with a Claude subscription token (`CLAUDE_FORCE_OAUTH=1`).
 
 - **Phase 1 (task reconstruction): done.** 5 of the 9 fixes documented in
   `edefd22` were turned into real, verified Harbor tasks (see `tasks/`
