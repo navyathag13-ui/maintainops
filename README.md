@@ -611,5 +611,4 @@ those by hand against a running server instead; see the commit for exactly what 
 ## Harbor evaluation
 
 `harbor-eval/` holds 5 Harbor tasks reconstructed from the bugs fixed in `edefd22`, built to test
-whether Claude Code can fix them autonomously. The tasks are built and locally verified; the agent
-runs have not been executed yet. See [harbor-eval/results.md](harbor-eval/results.md).
+whether Claude Code can fix them autonomously. Claude Code fixed 5 of 5 of them autonomously (one attempt each, small sample). See [harbor-eval/results.md](harbor-eval/results.md).

@@ -35,11 +35,9 @@ what's been done and what's still blocked.
   - A `solution/solve.sh` reference fix, reverse-derived from the same
     `edefd22` diff, independently turns the verifier green.
 
-- **Phase 2 (run Claude Code against each task): not started** — blocked on
-  the two Phase 0 dependencies above.
-- **Phase 3 (TTFT/ITL/throughput instrumentation): not started** — depends on
-  Phase 2.
-- **Phase 4 (results.md + integration): not started.**
+- **Phase 2 (run Claude Code against each task): done** — 5/5 fixed, see `results.md`.
+- **Phase 3 (TTFT/throughput): done** — `scripts/extract_metrics.py`; ITL isn't directly measurable.
+- **Phase 4 (results.md + integration): done.**
 
 ## The 5 reconstructed tasks
 

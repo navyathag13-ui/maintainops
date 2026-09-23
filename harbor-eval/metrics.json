@@ -1,0 +1,57 @@
+[
+  {
+    "task": "integrity-error-on-duplicate-sku",
+    "reward": 1.0,
+    "ttft_ms": 1438,
+    "turns": 20,
+    "output_tokens": 5721,
+    "duration_ms": 58722,
+    "duration_api_ms": 55924,
+    "ms_per_output_token": 9.78,
+    "output_tokens_per_sec": 102.3
+  },
+  {
+    "task": "negative-value-validation",
+    "reward": 1.0,
+    "ttft_ms": 1084,
+    "turns": 7,
+    "output_tokens": 2898,
+    "duration_ms": 24950,
+    "duration_api_ms": 24172,
+    "ms_per_output_token": 8.34,
+    "output_tokens_per_sec": 119.9
+  },
+  {
+    "task": "delete-part-with-history-crash",
+    "reward": 1.0,
+    "ttft_ms": 3651,
+    "turns": 28,
+    "output_tokens": 14115,
+    "duration_ms": 158837,
+    "duration_api_ms": 154118,
+    "ms_per_output_token": 10.92,
+    "output_tokens_per_sec": 91.6
+  },
+  {
+    "task": "delete-checked-out-equipment-loses-loan",
+    "reward": 1.0,
+    "ttft_ms": 2875,
+    "turns": 23,
+    "output_tokens": 5176,
+    "duration_ms": 220494,
+    "duration_api_ms": 206009,
+    "ms_per_output_token": 39.8,
+    "output_tokens_per_sec": 25.1
+  },
+  {
+    "task": "record-maintenance-lock-ordering",
+    "reward": 1.0,
+    "ttft_ms": 1391,
+    "turns": 9,
+    "output_tokens": 4867,
+    "duration_ms": 45842,
+    "duration_api_ms": 45409,
+    "ms_per_output_token": 9.33,
+    "output_tokens_per_sec": 107.2
+  }
+]

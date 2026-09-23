@@ -1,43 +1,74 @@
 # Results: Claude Code vs. MaintainOps' audited defects (Harbor)
 
-## Status: task construction complete, Claude Code runs NOT yet executed
+Every number below comes from an actual Harbor run (Docker containers, Claude Code
+agent, model `claude-sonnet-5`, one attempt per task, authenticated via a Claude
+subscription token). Raw metrics: [`metrics.json`](metrics.json), produced by
+[`scripts/extract_metrics.py`](scripts/extract_metrics.py).
 
-No Claude Code pass/fail, TTFT, ITL or throughput numbers exist yet, so none are reported here.
-The sandbox this was built in had no Docker (or alternative container runtime) and no
-`ANTHROPIC_API_KEY`, both required by Harbor to run an agent against a task container.
+## Headline
 
-## What was verified (real, locally reproduced)
+**Claude Code fixed 5 of 5 reconstructed defects autonomously** (verifier reward 1.0 on each),
+given only the symptom-only `instruction.md`.
 
-For each of the 5 tasks (see `README.md`), using the Python 3.11 backend environment:
-
-| Task | Verifier vs. buggy code | Verifier vs. current fixed code | Reference solve.sh makes it pass |
-|---|---|---|---|
-| integrity-error-on-duplicate-sku | fails (500) | passes | yes |
-| negative-value-validation | fails (8 of 10 checks) | passes | yes |
-| delete-part-with-history-crash | fails (500) | passes | yes |
-| delete-checked-out-equipment-loses-loan | fails (204, loan lost) | passes | yes |
-| record-maintenance-lock-ordering | fails (locks [2,1]) | passes | yes |
-
-This shows the tasks are fair and discriminating. It says nothing about Claude Code's ability.
-
-## Verified inside real Harbor + Docker containers
+## Harness validation (done before the agent runs)
 
 | Agent | Result on all 5 tasks |
 |---|---|
-| `oracle` (applies reference fix) | reward 1.0 on 5/5 |
 | `nop` (does nothing) | reward 0.0 on 5/5 |
+| `oracle` (reference fix) | reward 1.0 on 5/5 |
 
-So the Dockerfiles, `test.sh` scripts and verifiers work under Harbor: unfixed = fail, fixed = pass.
-These are harness checks, not Claude Code results.
+So a 1.0 means the bug was really fixed as judged by the verifier, and a task can't be
+passed by doing nothing.
 
-## Known limitations
+## Per-task results
 
-- The lock-ordering verifier checks the order of `SELECT ... FOR UPDATE` statements on SQLite.
-  It does not reproduce a real Postgres deadlock.
-- Only 5 of 9 documented fixes are covered (see README for why).
+| Task | Difficulty | Reward | TTFT (ms) | Turns | Output tokens | Wall time (s) | API time / output token (ms) | Output tok/s |
+|---|---|---|---|---|---|---|---|---|
+| integrity-error-on-duplicate-sku | easy | 1.0 | 1438 | 20 | 5721 | 58.7 | 9.8 | 102.3 |
+| negative-value-validation | easy | 1.0 | 1084 | 7 | 2898 | 24.9 | 8.3 | 119.9 |
+| delete-part-with-history-crash | medium | 1.0 | 3651 | 28 | 14115 | 158.8 | 10.9 | 91.6 |
+| delete-checked-out-equipment-loses-loan | medium | 1.0 | 2875 | 23 | 5176 | 220.5 | 39.8 | 25.1 |
+| record-maintenance-lock-ordering | hard | 1.0 | 1391 | 9 | 4867 | 45.8 | 9.3 | 107.2 |
 
-## To finish
+How the columns are defined:
+- **TTFT** is Claude Code's own `ttft_ms` field (time to first token of the run's first model call).
+- **Turns, output tokens, wall time** are from Claude Code's final result record. Wall time is the agent
+  session only, not container build or verification.
+- **Throughput** is output tokens divided by API time.
+- **ITL is not directly measured.** Claude Code's log has no per-token timestamps, so a true
+  inter-token latency can't be computed from it. "API time per output token" is a coarse stand-in
+  that also includes thinking time and network overhead. Do not quote it as ITL.
 
-1. Set `ANTHROPIC_API_KEY` (Docker is done).
-2. `harbor run -p harbor-eval/tasks/<task> -a claude-code -m anthropic/<model>`.
-3. Capture TTFT/ITL/throughput from the run trajectories and fill in this file.
+## Harder vs. simpler defects
+
+The expected pattern (concurrency bug is slowest) did **not** appear:
+- The "hard" concurrency task was one of the fastest: 9 turns, 45.8 s.
+- The most effort went to `delete-part-with-history-crash` (medium): 28 turns, 14k output tokens.
+- `delete-checked-out-equipment-loses-loan` has the slowest wall time and lowest throughput, but its
+  log shows an API retry and two sub-agent tasks, so its 25 tok/s reflects that overhead, not a
+  property of the bug.
+- TTFT was 1.1 to 1.4 s on the three lighter runs and 2.9 to 3.7 s on the two longer ones.
+
+## What this does and doesn't show
+
+Five tasks, one attempt each, one model, on a codebase the model may partly know (the fixes are a
+public pattern), is a small sample. It shows Claude Code can fix these particular well-described
+bugs end to end. It does not support a pass-rate claim, a difficulty ranking, or a latency
+comparison between bug types: with n=1 per task, the differences above could be run-to-run noise.
+The bug reports also name the symptom clearly, and several verifiers check behaviour (a 4xx instead of
+a 500) rather than one specific fix, which makes them friendlier than an open-ended audit. The
+lock-ordering verifier checks statement order on SQLite, not a real Postgres deadlock. I did not
+audit the agent transcripts for shortcuts beyond the verifier's result. Timing came from a
+subscription-authenticated session, so rate limits could have affected it (the logs contain
+`rate_limit_event` entries).
+
+One earlier attempt at the first task scored 0 because of a wrong model-name flag
+(`anthropic/claude-sonnet-5` was rejected by the CLI). That was a configuration error, not a failed
+fix, and it is excluded from the numbers above.
+
+## Reproduce
+
+```bash
+harbor run -p harbor-eval/tasks/<task> -a claude-code -m claude-sonnet-5   # with CLAUDE_FORCE_OAUTH=1 + CLAUDE_CODE_OAUTH_TOKEN, or ANTHROPIC_API_KEY
+python harbor-eval/scripts/extract_metrics.py <jobs dir> <5 job names in task order>
+```
