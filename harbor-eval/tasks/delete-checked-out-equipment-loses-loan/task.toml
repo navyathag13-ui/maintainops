@@ -1,0 +1,34 @@
+schema_version = "1.4"
+artifacts = []
+
+[task]
+name = "maintainops/delete-checked-out-equipment-loses-loan"
+version = "1.0.0"
+description = "Deleting checked-out equipment silently cascade-deletes the active, unreturned loan record."
+keywords = ["data-integrity", "fastapi", "sqlalchemy"]
+[[task.authors]]
+name = "Navyatha"
+
+[metadata]
+difficulty = "medium"
+category = "bug-fix"
+tags = ["backend", "data-integrity", "fastapi"]
+
+[verifier]
+timeout_sec = 600.0
+collect = []
+
+[verifier.env]
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+os = "linux"
+mcp_servers = []
+
+[environment.env]
+
+[solution.env]

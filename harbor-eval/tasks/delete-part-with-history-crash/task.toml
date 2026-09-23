@@ -1,0 +1,34 @@
+schema_version = "1.4"
+artifacts = []
+
+[task]
+name = "maintainops/delete-part-with-history-crash"
+version = "1.0.0"
+description = "Deleting a part with maintenance history crashes with an unhandled 500 (composite-PK FK cascade failure) instead of a clean 409."
+keywords = ["error-handling", "sqlalchemy", "fastapi"]
+[[task.authors]]
+name = "Navyatha"
+
+[metadata]
+difficulty = "medium"
+category = "bug-fix"
+tags = ["backend", "error-handling", "sqlalchemy"]
+
+[verifier]
+timeout_sec = 600.0
+collect = []
+
+[verifier.env]
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+os = "linux"
+mcp_servers = []
+
+[environment.env]
+
+[solution.env]

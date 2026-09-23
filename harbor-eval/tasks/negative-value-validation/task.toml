@@ -1,0 +1,34 @@
+schema_version = "1.4"
+artifacts = []
+
+[task]
+name = "maintainops/negative-value-validation"
+version = "1.0.0"
+description = "PATCH endpoints accept negative/zero values for quantity, cost, and hours fields that should never go negative."
+keywords = ["validation", "pydantic", "fastapi"]
+[[task.authors]]
+name = "Navyatha"
+
+[metadata]
+difficulty = "easy"
+category = "bug-fix"
+tags = ["backend", "validation", "pydantic"]
+
+[verifier]
+timeout_sec = 600.0
+collect = []
+
+[verifier.env]
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+os = "linux"
+mcp_servers = []
+
+[environment.env]
+
+[solution.env]
