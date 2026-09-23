@@ -14,8 +14,8 @@ Full methodology, results, and honest caveats live in [`results.md`](results.md)
   Docker Desktop provides the sandbox; Claude Code runs as the agent under test,
   authenticated with a Claude subscription token (`CLAUDE_FORCE_OAUTH=1`).
 
-- **Phase 1 (task reconstruction): done.** 5 of the 9 fixes documented in
-  `edefd22` were turned into real, verified Harbor tasks (see `tasks/`
+- **Phase 1 (task reconstruction): done.** 5 tasks covering 4 of the 9 fixes itemized in
+  `edefd22` (the delete-guard fix became two tasks) were turned into real, verified Harbor tasks (see `tasks/`
   below). Each one's "buggy" environment was built by taking the *current*
   backend (which already includes all 9 original fixes plus everything since)
   and reverse-applying only that one fix — not by rolling back to the old
@@ -40,10 +40,10 @@ Full methodology, results, and honest caveats live in [`results.md`](results.md)
 | `delete-checked-out-equipment-loses-loan` | medium | Deleting checked-out equipment silently cascade-deleted the active loan record |
 | `record-maintenance-lock-ordering` | hard (concurrency) | `record_maintenance` locked `Part` rows in client-supplied order, risking a Postgres deadlock under concurrent requests |
 
-## Why only 5 of the 9 documented fixes
+## Why only 4 of the 9 itemized fixes
 
 `edefd22`'s commit message documents 9 distinct fixes (6 backend, 3 frontend).
-Excluded from this task set, with reasons:
+The other 5 were excluded from this task set, with reasons:
 
 - **`return_equipment` missing an `Equipment` lock, and `update_equipment`/
   `update_part` PATCH reading via an unlocked `db.get()`.** Both are the same
