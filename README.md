@@ -607,3 +607,9 @@ those by hand against a running server instead; see the commit for exactly what 
   at the Pydantic layer, not the database layer -- a real Postgres `CHECK` constraint would
   close that gap for good (and for any client that isn't this API), but adding one to a table
   that might already have rows is exactly the kind of change `create_all()` can't do safely.
+
+## Harbor evaluation
+
+`harbor-eval/` holds 5 Harbor tasks reconstructed from the bugs fixed in `edefd22`, built to test
+whether Claude Code can fix them autonomously. The tasks are built and locally verified; the agent
+runs have not been executed yet. See [harbor-eval/results.md](harbor-eval/results.md).
