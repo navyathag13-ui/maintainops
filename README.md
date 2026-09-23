@@ -601,14 +601,14 @@ those by hand against a running server instead; see the commit for exactly what 
   calendars, and company announcements came up as real needs while building this, but they're
   a different data model and a different story than equipment tracking — a separate project
   wired to the same table, not a module bolted onto this one.
-- **"Click a part → see recent project usage" isn't built yet.** Parts don't have a detail page
+- **"Click a part → see recent project usage" is a good next feature.** Parts don't have a detail page
   at all right now — they're managed inline from the Parts Inventory list. `ProjectPartUsage`
   already has everything needed to answer "which projects have been eating through Wood
   Screws," it just doesn't have a page to show it on yet.
 - **Project cards don't have a timeline or Gantt view.** `start_date` and `expected_end_date`
   exist on every project and currently just sit in the detail page as text. Multiple concurrent
   projects with overlapping equipment needs is exactly the situation where a simple timeline
-  would earn its keep — not built this pass.
+  would earn its keep — a good next feature.
 - **N+1 queries in `alerts.py` and `reports.py`.** Both load a whole table into memory and
   filter/aggregate in Python rather than pushing the work into SQL, and neither eager-loads
   the relationships it touches (`log.equipment`, `log.parts_used`, `r.part`) -- fine at
