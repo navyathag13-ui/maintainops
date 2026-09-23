@@ -559,16 +559,18 @@ those by hand against a running server instead; see the commit for exactly what 
 
 ## Tech Stack
 
-| Layer         | Choice                                          |
-| ------------- | -------------------------------------------------- |
-| Backend       | Python 3.11+, FastAPI                                |
-| ORM           | SQLAlchemy 2.0 (sync)                                  |
-| Database      | PostgreSQL (Docker Compose)                              |
-| Backend tests | pytest                                                    |
-| Frontend      | React 19 + TypeScript, Vite, React Router                  |
-| Charts        | Recharts (pinned to 2.x -- see below)                          |
-| Containers    | Docker Compose (Postgres + backend + frontend/nginx)          |
-| API docs      | FastAPI's built-in Swagger UI / OpenAPI                          |
+| Layer | Choice (versions from the repo) |
+|---|---|
+| Backend | Python 3.11 (`python:3.11-slim` image), FastAPI 0.115, Uvicorn 0.30, Pydantic 2.9 |
+| ORM | SQLAlchemy 2.0.34, synchronous, with `SELECT ... FOR UPDATE` row locks where two people could change the same row |
+| Database | PostgreSQL 16 (`postgres:16-alpine`) in Docker Compose, psycopg2 2.9.9 |
+| Backend tests | pytest 8.3, 68 tests, each against a fresh in-memory SQLite database; httpx 0.27 for API-level checks |
+| Frontend | React 19, TypeScript 6, Vite 8, React Router 7, served by nginx in the container (built with Node 20) |
+| Charts | Recharts 2.x (pinned to 2.x, see the notes above) |
+| Linting | oxlint for the frontend |
+| Containers | Docker Compose: Postgres, backend and frontend/nginx |
+| API docs | FastAPI's built-in Swagger UI / OpenAPI |
+| Agent evaluation | Harbor (see the last section), Docker sandboxes, Claude Code as the agent under test |
 
 ## What I'd add next, honestly
 
@@ -608,15 +610,26 @@ those by hand against a running server instead; see the commit for exactly what 
   close that gap for good (and for any client that isn't this API), but adding one to a table
   that might already have rows is exactly the kind of change `create_all()` can't do safely.
 
-## Harbor evaluation: can Claude Code fix the bugs my audit found?
+## Can an AI coding agent fix the bugs my review found?
 
-**Problem.** The review above found real defects that 53 passing tests missed. The question here: given only a bug-report-style description, can an AI coding agent find and fix them on its own, judged by a test rather than by my opinion?
+The bug hunt above found real problems that 53 passing tests never saw. That made me curious about a different question: if I describe one of those bugs the way a user would report it, can an AI coding agent find and fix it on its own, and can a test (not my opinion) say whether it worked?
 
-**Results** (full table and caveats in [harbor-eval/results.md](harbor-eval/results.md)):
+I used [Harbor](https://github.com/harbor-framework/harbor), a framework for running an agent against a task inside a container and scoring the result with a verifier. Everything is in [`harbor-eval/`](harbor-eval/).
 
-- 5 defects were turned into [Harbor](https://github.com/harbor-framework/harbor) tasks. Claude Code (`claude-sonnet-5`) fixed **5 of 5**, one attempt each, as scored by each task's verifier.
-- Time to first token was 1.1-3.7 s per run. The "hard" concurrency task was one of the fastest (9 turns); the most effort went to a medium one (28 turns).
-- Sanity checks: a do-nothing agent scores 0 on all 5 and the reference fix scores 1 on all 5. The lock-ordering bug was also reproduced as a real deadlock on PostgreSQL 16 (buggy code deadlocks, fixed code doesn't).
-- **What this does not show:** 5 tasks, one attempt and one model is a small sample, not a benchmark. It says nothing about pass rates or difficulty ranking. The 5 tasks cover 4 of the 9 itemized fixes (the delete-guard fix became two tasks); the other 5 (three frontend, two locking) were not turned into tasks, with reasons in `harbor-eval/README.md`.
+**What I did**
 
-**How.** Each task starts from the current backend with just one fix reverse-applied (so later work isn't lost), a symptom-only `instruction.md`, a pytest verifier that fails on the buggy code and passes on the fix, and a reference `solve.sh`. Every task was checked locally, then inside real Harbor/Docker containers, before any agent ran. Metrics come from Claude Code's own run logs (`harbor-eval/scripts/extract_metrics.py`).
+- Turned five of the defects into Harbor tasks. Each one starts from today's backend with just that one fix removed, so none of the later work (Projects, Employees, the dashboard) is lost.
+- Each task has a plain bug report (symptoms only, no hints), a pytest verifier that fails on the broken code and passes on the fix, and a reference solution.
+- Before letting any agent try, I checked the tasks themselves: an agent that does nothing scores 0 on all five, and the reference fix scores 1 on all five.
+- Then I ran Claude Code (`claude-sonnet-5`) on each task, once.
+
+**What happened**
+
+- It fixed **all five**, as judged by the verifiers.
+- Time to first token was 1.1 to 3.7 seconds per run.
+- I expected the concurrency bug to be the hardest. It was one of the quickest (9 turns). The most effort went into a medium task, deleting a part that has maintenance history (28 turns).
+- I also reproduced the lock-ordering bug as a real deadlock on PostgreSQL 16: the old code deadlocks, the fixed code does not.
+
+**What this doesn't tell you**
+
+Five tasks, one attempt each and one model is a small sample. It is a good sign, not a benchmark, and it says nothing about pass rates or which bugs are harder. The five tasks cover four of the nine fixes from the review (the delete-guard fix became two tasks). The other five, three frontend bugs and two locking fixes, are not covered; `harbor-eval/README.md` explains why. Full numbers are in [`harbor-eval/results.md`](harbor-eval/results.md), and the dated log of everything I ran is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
