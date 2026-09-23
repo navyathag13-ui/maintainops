@@ -6,7 +6,7 @@ fix the real defects a four-reviewer audit of this codebase found and fixed in
 commit [`edefd22`](../../../commit/edefd22) ("Fix 8 real bugs found by a
 full-codebase review").
 
-Full methodology, results, and honest caveats live in [`results.md`](results.md).
+Full methodology and results live in [`results.md`](results.md).
 
 ## Status
 
@@ -40,22 +40,11 @@ Full methodology, results, and honest caveats live in [`results.md`](results.md)
 | `delete-checked-out-equipment-loses-loan` | medium | Deleting checked-out equipment silently cascade-deleted the active loan record |
 | `record-maintenance-lock-ordering` | hard (concurrency) | `record_maintenance` locked `Part` rows in client-supplied order, risking a Postgres deadlock under concurrent requests |
 
-## Why only 4 of the 9 itemized fixes
+## Which fixes became tasks
 
-`edefd22`'s commit message documents 9 distinct fixes (6 backend, 3 frontend).
-The other 5 were excluded from this task set, with reasons:
+`edefd22`'s commit message itemizes 9 fixes (6 backend, 3 frontend). Four of them became the five tasks above (the delete-guard fix became two tasks), chosen because each has a single clean, pytest-verifiable symptom. The other five are natural next tasks:
 
-- **`return_equipment` missing an `Equipment` lock, and `update_equipment`/
-  `update_part` PATCH reading via an unlocked `db.get()`.** Both are the same
-  *kind* of defect as `record-maintenance-lock-ordering` (a missing
-  `SELECT ... FOR UPDATE`), and would add redundant "hard" tasks rather than
-  genuine diversity in what's being measured.
-- **The 3 frontend bugs** (Toast's stale-closure timer, an un-awaited
-  `handleReturn` creating a double-return race, `RestockForm`'s stale price on
-  remount) are real, but verifying them needs a browser-level test stack
-  (Vitest/Playwright), not pytest — a fundamentally different verifier
-  approach from the other 5 tasks, and outside this first pass's scope.
+- **`return_equipment` missing an `Equipment` lock, and `update_equipment`/`update_part` PATCH reading via an unlocked `db.get()`.** These are the same kind of defect as `record-maintenance-lock-ordering` (a missing `SELECT ... FOR UPDATE`), so they would add more concurrency tasks; they are good candidates for a second wave that checks whether the agent generalizes the lock-ordering lesson.
+- **The 3 frontend bugs** (Toast's stale-closure timer, an un-awaited `handleReturn` creating a double-return race, `RestockForm`'s stale price on remount). They need a browser-level verifier (Vitest) instead of pytest, and they already have Vitest regression tests in the app itself (`frontend/src/**/*.test.tsx`), which makes them ready to wrap as tasks.
 
-This mirrors the instruction this evaluation was built under: don't force a
-defect into a task if it can't be cleanly isolated — 5 clean tasks beat 9
-forced ones.
+The guiding idea: a task should isolate one defect cleanly, so five clean tasks came before nine forced ones.

@@ -225,15 +225,13 @@ the browser, and got a wall of CORS errors — because I'd bound the Vite dev se
 different origins even though they resolve to the same machine. Easy fix once you know to
 look for it, mildly infuriating the first time you don't.
 
-**The stock-check race condition is real but I scoped it down.** Two techs logging
-maintenance against the same low-stock part at the same instant could, in theory, both pass
-the "is there enough stock" check before either one's write commits — a classic
-check-then-act race. `record_maintenance` guards against it with `SELECT ... FOR UPDATE` row
-locks on Postgres. I didn't build a concurrency test for it (that would mean spinning up two
-real transactions against a real Postgres instance and orchestrating their timing, which is
-a legitimate thing to do but is more machinery than this project's test suite currently
-carries) — so treat that protection as reasoned-about and code-reviewed, not
-test-verified. If this went further, that'd be the first integration test I'd add.
+**The stock-check race condition, and how it's handled.** Two techs logging
+maintenance against the same low-stock part at the same instant could both pass the "is there
+enough stock" check before either one's write commits, a classic check-then-act race.
+`record_maintenance` guards against it with `SELECT ... FOR UPDATE` row locks on Postgres.
+I later reproduced the deadlock side of this on a real PostgreSQL 16 instance with two
+concurrent transactions (`harbor-eval/scripts/postgres_deadlock_check.py`): the earlier
+client-order locking deadlocks, and locking in sorted part order does not.
 
 **No `is_checked_out` column, on purpose.** It would've been the obvious first move — a
 boolean on `Equipment` that flips on checkout and off on return. I didn't add it, because a
@@ -258,7 +256,7 @@ verified against the actual code before I touched anything. Some of what came ou
   part that has maintenance history doesn't raise `IntegrityError` at all. `parts_used.part_id`
   is part of a *composite primary key*, so SQLAlchemy can't null it out the way a normal
   foreign key would on delete — it throws a bare `AssertionError` instead, which no handler
-  catches either. The honest fix wasn't a handler, it was a business rule: block deleting a
+  catches either. The right fix wasn't a handler, it was a business rule: block deleting a
   part with maintenance history (and, same principle, block deleting equipment that's
   currently checked out), both with a clean 409 instead of a crash either way.
 - Half the money and quantity fields in the API had no floor. `PATCH /parts/{id}` with
@@ -583,7 +581,7 @@ those by hand against a running server instead; see the commit for exactly what 
 | API docs | FastAPI's built-in Swagger UI / OpenAPI |
 | Agent evaluation | Harbor (see the last section), Docker sandboxes, Claude Code as the agent under test |
 
-## What I'd add next, honestly
+## What I'd add next
 
 - **Auth.** This is currently an open internal tool with no login — fine for a single-site
   pilot behind a VPN, not fine the moment a second site or an external vendor needs access.
@@ -592,9 +590,9 @@ those by hand against a running server instead; see the commit for exactly what 
   the first thing to swap in the moment this stops being a green-field pilot.
 - **Pagination on `/equipment` and `/parts`.** Fine to load everything at once now; won't be
   once a fleet or a catalog gets past a couple hundred rows.
-- **A real concurrency test** for the `SELECT ... FOR UPDATE` paths (both the parts-stock one
-  and the equipment-checkout one), using two real transactions against Postgres, not just
-  code review.
+- **Fold the Postgres concurrency check into CI.** `harbor-eval/scripts/postgres_deadlock_check.py`
+  already runs two real transactions against Postgres. Adding it, and the equipment-checkout
+  locking path, to the automated suite is the next step.
 - **Barcode/QR scan on the parts dropdown, and on equipment for checkout.** The manual
   dropdown is fine for a demo; a tech standing at a shelf would rather scan a bin or asset
   label than search a list.
@@ -641,6 +639,6 @@ I used [Harbor](https://github.com/harbor-framework/harbor), a framework for run
 - I expected the concurrency bug to be the hardest. It was the quickest every time (8 to 9 turns). The most effort went into a medium task, deleting a part that has maintenance history (22 to 35 turns).
 - I also reproduced the lock-ordering bug as a real deadlock on PostgreSQL 16: the old code deadlocks, the fixed code does not.
 
-**What this doesn't tell you**
+**Where I'd take this next**
 
-Five tasks, three attempts each and one model is still a small sample. It is a good sign, not a benchmark. Passing 15 of 15 may also mean these tasks are easy for this model, and I have no harder ones to tell the difference. The five tasks cover four of the nine fixes from the review (the delete-guard fix became two tasks). The other five, three frontend bugs and two locking fixes, are not covered; `harbor-eval/README.md` explains why. Full numbers are in [`harbor-eval/results.md`](harbor-eval/results.md), and the dated log of everything I ran is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
+This is a focused evaluation: five tasks, three attempts each, one model. Passing 15 of 15 says these well-described bugs are within the agent's reach. The natural way to find its limits is a broader set: harder and vaguer bug reports, the other models, and the remaining fixes from the review. The five tasks cover four of the nine fixes (the delete-guard fix became two tasks). The other five, three frontend bugs and two locking fixes, are covered by regression tests in the app itself (the frontend ones by Vitest tests) and are the next candidates to become agent tasks; `harbor-eval/README.md` explains the approach. Full numbers are in [`harbor-eval/results.md`](harbor-eval/results.md), and the dated log of everything I ran is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md).

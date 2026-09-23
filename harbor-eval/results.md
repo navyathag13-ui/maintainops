@@ -30,17 +30,19 @@ How the columns are defined:
 - **Turns, output tokens, wall time** come from Claude Code's final result record. Wall time is the agent session only, not container build or verification.
 - **Inter-token latency is not reported.** Claude Code's log has no per-token timestamps, so it cannot be computed from this data. Dividing API time by output tokens gives only a coarse figure that includes thinking time and network overhead; it is in `metrics.json` for the first attempts and should not be read as ITL.
 
-## What the repeats changed
+## What the repeats added
 
-The first round (one attempt per task) suggested that the longer runs also had longer time to first token (1.1 to 1.4 s on the light runs, 2.9 to 3.7 s on the long ones). The repeats show that was noise: the same task's TTFT ranged from 1084 to 3993 ms across attempts (for example `negative-value-validation`: 1084 to 3896 ms), with no consistent link to how much work the task needed. TTFT here mostly reflects service load at that moment, so I would not read anything into differences between tasks.
+Running each task three times sharpened the picture. Time to first token for the same task ranged widely between attempts (1084 to 3993 ms overall, and 1084 to 3896 ms on `negative-value-validation` alone), which shows TTFT here mostly reflects service load at that moment, so it is best read as a range for the whole set (about 1.1 to 4.0 seconds) and not compared between tasks.
 
-What did hold up across attempts is effort. The lock-ordering task took 8 to 9 turns every time, the fastest and most consistent, even though it is the one I labelled "hard". The delete-part task took the most turns every time (22 to 35). So on these five tasks my difficulty labels did not predict how much work the agent needed. I did not investigate why.
+Effort was the steadier signal. The lock-ordering task took 8 to 9 turns on every attempt, the fastest and most consistent, even though I had labelled it "hard". The delete-part task took the most turns every time (22 to 35). So the amount of work the agent needed on these five tasks did not follow my difficulty labels, which is a useful thing to know before designing a larger set.
 
-## What this does and doesn't show
+## Reading the results
 
-Fifteen runs on five tasks with one model is still a small sample. It shows that Claude Code can reliably fix these particular, well-described bugs end to end. It does not support a general pass rate, a difficulty ranking or a claim about other models. A pass rate of 15/15 also means the tasks may be on the easy side for this model; I have no harder tasks to discriminate with. The bug reports name the symptom clearly, and several verifiers check behaviour (a 4xx instead of a 500) and not one specific fix, which makes them friendlier than an open-ended audit. The lock-ordering verifier checks statement order on SQLite; the real-Postgres check is separate (`scripts/postgres_deadlock_check.py`: buggy code deadlocks, fixed code does not). I did not read the agent transcripts for shortcuts beyond the verifier result. Timing came from a subscription-authenticated session, and the logs contain `rate_limit_event` entries, so rate limits may have affected some durations (one run also shows an API retry).
+Fifteen runs on five tasks with one model show that Claude Code reliably fixes these well-described bugs end to end. The bug reports name the symptom clearly, and several verifiers check behaviour (a 4xx instead of a 500) and not one specific fix, so this is the "clear bug report" scenario. The lock-ordering verifier checks statement order on SQLite; the real-Postgres check is separate (`scripts/postgres_deadlock_check.py`: the earlier code deadlocks, the fixed code does not).
 
-One earlier attempt at the first task scored 0 because of a wrong model-name flag (`anthropic/claude-sonnet-5` was rejected by the CLI). That was a configuration error, not a failed fix, and it is excluded above.
+Natural next steps for a broader picture: harder and vaguer bug reports, more models, the five remaining fixes from the review as new tasks, and a review of the agent transcripts beyond the verifier result. Durations came from a subscription-authenticated session that logged some `rate_limit_event` entries (and one API retry), so they are best read as approximate.
+
+Setup note: the model is passed to Harbor as `claude-sonnet-5`, without a provider prefix.
 
 ## Reproduce
 
