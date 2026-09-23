@@ -234,7 +234,7 @@ created a way for them to disagree (a bug, a failed transaction, a manual DB fix
 one and not the other). `is_checked_out` in the API response is *computed* from the loan
 table on every read instead. Slightly more query work, zero chance of the flag lying to you.
 
-**A deliberate bug-hunt turned up eight real ones.** Once the feature set felt done, I ran a
+**A deliberate bug-hunt turned up eight real ones** (the commit title says eight; its message itemizes nine fixes, six backend and three frontend)**.** Once the feature set felt done, I ran a
 dedicated review pass across the whole app — four independent reviewers (line-by-line
 correctness, API contract mismatches, frontend state/race bugs, cross-cutting cleanup), each
 verified against the actual code before I touched anything. Some of what came out of it:
@@ -261,7 +261,7 @@ verified against the actual code before I touched anything. Some of what came ou
   it. Same gap on both `PATCH` endpoints, which read via a plain unlocked fetch while every
   other mutator of those rows takes a row lock.
 
-None of these showed up in the 41 tests that existed at the time — they're exactly the class
+None of these showed up in the 53 tests that existed at the time (53 passed both before and after the fix commit `edefd22`) — they're exactly the class
 of bug unit tests miss: constraint interactions, lock ordering, and error paths nobody had a
 reason to hit on the happy path. Full list of what was found and fixed is in the commit
 history from that pass.
@@ -608,7 +608,15 @@ those by hand against a running server instead; see the commit for exactly what 
   close that gap for good (and for any client that isn't this API), but adding one to a table
   that might already have rows is exactly the kind of change `create_all()` can't do safely.
 
-## Harbor evaluation
+## Harbor evaluation: can Claude Code fix the bugs my audit found?
 
-`harbor-eval/` holds 5 Harbor tasks reconstructed from the bugs fixed in `edefd22`, built to test
-whether Claude Code can fix them autonomously. Claude Code fixed 5 of 5 of them autonomously (one attempt each, small sample). See [harbor-eval/results.md](harbor-eval/results.md).
+**Problem.** The review above found real defects that 53 passing tests missed. The question here: given only a bug-report-style description, can an AI coding agent find and fix them on its own, judged by a test rather than by my opinion?
+
+**Results** (full table and caveats in [harbor-eval/results.md](harbor-eval/results.md)):
+
+- 5 defects were turned into [Harbor](https://github.com/harbor-framework/harbor) tasks. Claude Code (`claude-sonnet-5`) fixed **5 of 5**, one attempt each, as scored by each task's verifier.
+- Time to first token was 1.1-3.7 s per run. The "hard" concurrency task was one of the fastest (9 turns); the most effort went to a medium one (28 turns).
+- Sanity checks: a do-nothing agent scores 0 on all 5 and the reference fix scores 1 on all 5. The lock-ordering bug was also reproduced as a real deadlock on PostgreSQL 16 (buggy code deadlocks, fixed code doesn't).
+- **What this does not show:** 5 tasks, one attempt and one model is a small sample, not a benchmark. It says nothing about pass rates or difficulty ranking. 4 of the 9 audited fixes (3 frontend, plus the two extra locking fixes) were not turned into tasks; the reasons are in `harbor-eval/README.md`.
+
+**How.** Each task starts from the current backend with just one fix reverse-applied (so later work isn't lost), a symptom-only `instruction.md`, a pytest verifier that fails on the buggy code and passes on the fix, and a reference `solve.sh`. Every task was checked locally, then inside real Harbor/Docker containers, before any agent ran. Metrics come from Claude Code's own run logs (`harbor-eval/scripts/extract_metrics.py`).
