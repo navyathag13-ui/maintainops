@@ -1,6 +1,6 @@
 # Results: Claude Code vs. MaintainOps' audited defects (Harbor)
 
-## Status: task construction complete, agent runs NOT yet executed
+## Status: task construction complete, Claude Code runs NOT yet executed
 
 No Claude Code pass/fail, TTFT, ITL or throughput numbers exist yet, so none are reported here.
 The sandbox this was built in had no Docker (or alternative container runtime) and no
@@ -19,8 +19,16 @@ For each of the 5 tasks (see `README.md`), using the Python 3.11 backend environ
 | record-maintenance-lock-ordering | fails (locks [2,1]) | passes | yes |
 
 This shows the tasks are fair and discriminating. It says nothing about Claude Code's ability.
-These checks ran directly with pytest, not inside Harbor containers, so the Dockerfiles and
-`test.sh` scripts are untested under Harbor itself.
+
+## Verified inside real Harbor + Docker containers
+
+| Agent | Result on all 5 tasks |
+|---|---|
+| `oracle` (applies reference fix) | reward 1.0 on 5/5 |
+| `nop` (does nothing) | reward 0.0 on 5/5 |
+
+So the Dockerfiles, `test.sh` scripts and verifiers work under Harbor: unfixed = fail, fixed = pass.
+These are harness checks, not Claude Code results.
 
 ## Known limitations
 
@@ -30,7 +38,6 @@ These checks ran directly with pytest, not inside Harbor containers, so the Dock
 
 ## To finish
 
-1. Install Docker; set `ANTHROPIC_API_KEY`.
-2. `harbor run -p harbor-eval/tasks/<task> -a oracle` (should score 1 for every task), then
-   `-a claude-code -m anthropic/<model>`.
+1. Set `ANTHROPIC_API_KEY` (Docker is done).
+2. `harbor run -p harbor-eval/tasks/<task> -a claude-code -m anthropic/<model>`.
 3. Capture TTFT/ITL/throughput from the run trajectories and fill in this file.
