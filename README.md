@@ -2,6 +2,15 @@
 
 ![Equipment list — color-coded maintenance status](docs/screenshots/equipment-list.png)
 
+## Highlights
+
+- A complete full-stack app: **FastAPI, PostgreSQL and React**, started with a single `docker compose up` (checked from a clean clone)
+- **68 tests** on the business logic, plus a deliberate bug hunt that found and fixed nine issues the earlier 53 tests had missed, including a lock-ordering deadlock I reproduced on PostgreSQL 16
+- Row-level locking, all-or-nothing stock updates, and a "never a raw stack trace" API error contract
+- Projects, employees, equipment borrowing, wear limits, restock and cost reports, and a dashboard built around what needs a decision today
+- A Harbor evaluation where Claude Code fixed all **5 of 5** bugs I reconstructed from my own review
+
+
 ## The problem this replaces
 
 Picture a small industrial site — a handful of buildings, forty or so pieces of rotating
