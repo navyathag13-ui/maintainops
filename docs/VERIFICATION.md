@@ -45,7 +45,10 @@ Per-run numbers: [`../harbor-eval/results.md`](../harbor-eval/results.md) and `.
 
 The full history was searched for API keys, tokens and connection strings. Nothing found; only `frontend/.env.example` is tracked.
 
+## Frontend tests (2026-09-23)
+
+`npm test` (Vitest 5): 12 tests pass, covering the Toast countdown (including the re-render bug), the maintenance-level thresholds and the restock form's price reset. `tsc -b`, `npm run lint` (0 warnings) and `npm run build` all pass. Writing the tests also surfaced a lint warning in `Toast.tsx` (a ref written during render), which I fixed without changing behaviour.
+
 ## Not checked
 
-- `docker compose` on amd64 or Linux
-- The three frontend bugs from the review were not turned into tasks, so an agent was never tried on them
+- The three frontend bugs from the review were not turned into Harbor tasks, so an agent was never tried on them (they do have regression tests now)

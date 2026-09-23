@@ -7,7 +7,9 @@ export function Toast({ message, onDismiss }: { message: string; onDismiss: () =
   // reset the 4s countdown on any unrelated re-render while the toast
   // is showing.
   const onDismissRef = useRef(onDismiss);
-  onDismissRef.current = onDismiss;
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => onDismissRef.current(), 4000);

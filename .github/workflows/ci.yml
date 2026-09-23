@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the full stack
+        run: docker compose up -d --build
+      - name: Wait for the API and check it
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf localhost:8000/health && break
+            sleep 2
+          done
+          curl -sf localhost:8000/health
+          curl -sf localhost:8000/dashboard/summary > /dev/null
+          curl -sf -o /dev/null localhost:5173/
+      - name: Duplicate SKU returns a clean 409 on real Postgres
+        run: |
+          B='{"name":"X","sku":"CI-1","quantity_on_hand":1,"reorder_threshold":1,"unit_cost":"1.00"}'
+          curl -sf -X POST localhost:8000/parts -H 'content-type: application/json' -d "$B" > /dev/null
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8000/parts -H 'content-type: application/json' -d "$B")
+          test "$code" = "409"
+      - if: failure()
+        run: docker compose logs

@@ -576,7 +576,9 @@ those by hand against a running server instead; see the commit for exactly what 
 | Backend tests | pytest 8.3, 68 tests, each against a fresh in-memory SQLite database; httpx 0.27 for API-level checks |
 | Frontend | React 19, TypeScript 6, Vite 8, React Router 7, served by nginx in the container (built with Node 20) |
 | Charts | Recharts 2.x (pinned to 2.x, see the notes above) |
+| Frontend tests | Vitest 5, Testing Library and jsdom: 12 tests covering the Toast timer, the maintenance-level rules and the restock form (the three UI bugs from the review) |
 | Linting | oxlint for the frontend |
+| CI | GitHub Actions: backend pytest, frontend lint, tests and build, and a full `docker compose up` smoke test against real Postgres |
 | Containers | Docker Compose: Postgres, backend and frontend/nginx |
 | API docs | FastAPI's built-in Swagger UI / OpenAPI |
 | Agent evaluation | Harbor (see the last section), Docker sandboxes, Claude Code as the agent under test |
