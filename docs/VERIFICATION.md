@@ -37,7 +37,7 @@ One run each. The pause makes the overlap deliberate, so this shows the bug is r
 
 - Do-nothing agent: 0 out of 5 tasks fixed
 - Reference solutions: 5 out of 5
-- Claude Code (`claude-sonnet-5`), one attempt per task: 5 out of 5
+- Claude Code (`claude-sonnet-5`), three attempts per task: 15 out of 15 runs scored 1.0, none errored (all attempts in `../harbor-eval/attempts.json`)
 
 Per-run numbers: [`../harbor-eval/results.md`](../harbor-eval/results.md) and `../harbor-eval/metrics.json`. Verifier output for buggy vs fixed code: `../harbor-eval/verification_pytest_output.txt`.
 

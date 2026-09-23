@@ -26,7 +26,7 @@ Full methodology, results, and honest caveats live in [`results.md`](results.md)
   - A `solution/solve.sh` reference fix, reverse-derived from the same
     `edefd22` diff, independently turns the verifier green.
 
-- **Phase 2 (run Claude Code against each task): done** — 5/5 fixed, see `results.md`.
+- **Phase 2 (run Claude Code against each task): done** — 5/5 tasks fixed on all 3 attempts (15/15 runs), see `results.md`.
 - **Phase 3 (TTFT/throughput): done** — `scripts/extract_metrics.py`; ITL isn't directly measurable.
 - **Phase 4 (results.md + integration): done.**
 

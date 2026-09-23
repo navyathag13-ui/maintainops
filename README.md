@@ -8,7 +8,7 @@
 - **68 tests** on the business logic, plus a deliberate bug hunt that found and fixed nine issues the earlier 53 tests had missed, including a lock-ordering deadlock I reproduced on PostgreSQL 16
 - Row-level locking, all-or-nothing stock updates, and a "never a raw stack trace" API error contract
 - Projects, employees, equipment borrowing, wear limits, restock and cost reports, and a dashboard built around what needs a decision today
-- A Harbor evaluation where Claude Code fixed all **5 of 5** bugs I reconstructed from my own review
+- A Harbor evaluation where Claude Code fixed all **5 bugs** I reconstructed from my own review, on all 3 attempts each (15 of 15 runs)
 
 
 ## The problem this replaces
@@ -632,15 +632,15 @@ I used [Harbor](https://github.com/harbor-framework/harbor), a framework for run
 - Turned five of the defects into Harbor tasks. Each one starts from today's backend with just that one fix removed, so none of the later work (Projects, Employees, the dashboard) is lost.
 - Each task has a plain bug report (symptoms only, no hints), a pytest verifier that fails on the broken code and passes on the fix, and a reference solution.
 - Before letting any agent try, I checked the tasks themselves: an agent that does nothing scores 0 on all five, and the reference fix scores 1 on all five.
-- Then I ran Claude Code (`claude-sonnet-5`) on each task, once.
+- Then I ran Claude Code (`claude-sonnet-5`) on each task three times.
 
 **What happened**
 
-- It fixed **all five**, as judged by the verifiers.
+- It fixed **all five tasks on all three attempts: 15 of 15 runs**, as judged by the verifiers.
 - Time to first token was 1.1 to 3.7 seconds per run.
-- I expected the concurrency bug to be the hardest. It was one of the quickest (9 turns). The most effort went into a medium task, deleting a part that has maintenance history (28 turns).
+- I expected the concurrency bug to be the hardest. It was the quickest every time (8 to 9 turns). The most effort went into a medium task, deleting a part that has maintenance history (22 to 35 turns).
 - I also reproduced the lock-ordering bug as a real deadlock on PostgreSQL 16: the old code deadlocks, the fixed code does not.
 
 **What this doesn't tell you**
 
-Five tasks, one attempt each and one model is a small sample. It is a good sign, not a benchmark, and it says nothing about pass rates or which bugs are harder. The five tasks cover four of the nine fixes from the review (the delete-guard fix became two tasks). The other five, three frontend bugs and two locking fixes, are not covered; `harbor-eval/README.md` explains why. Full numbers are in [`harbor-eval/results.md`](harbor-eval/results.md), and the dated log of everything I ran is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
+Five tasks, three attempts each and one model is still a small sample. It is a good sign, not a benchmark. Passing 15 of 15 may also mean these tasks are easy for this model, and I have no harder ones to tell the difference. The five tasks cover four of the nine fixes from the review (the delete-guard fix became two tasks). The other five, three frontend bugs and two locking fixes, are not covered; `harbor-eval/README.md` explains why. Full numbers are in [`harbor-eval/results.md`](harbor-eval/results.md), and the dated log of everything I ran is in [`docs/VERIFICATION.md`](docs/VERIFICATION.md).

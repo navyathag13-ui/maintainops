@@ -1,0 +1,147 @@
+{
+  "integrity-error-on-duplicate-sku": [
+    {
+      "job": "2026-09-23__13-08-27",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1438,
+      "turns": 20,
+      "output_tokens": 5721,
+      "duration_s": 58.7
+    },
+    {
+      "job": "rep2-integrity-error-on-duplicate-sku",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1667,
+      "turns": 19,
+      "output_tokens": 6631,
+      "duration_s": 67.2
+    },
+    {
+      "job": "rep3-integrity-error-on-duplicate-sku",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 3200,
+      "turns": 13,
+      "output_tokens": 5018,
+      "duration_s": 69.9
+    }
+  ],
+  "negative-value-validation": [
+    {
+      "job": "2026-09-23__13-13-24",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1084,
+      "turns": 7,
+      "output_tokens": 2898,
+      "duration_s": 24.9
+    },
+    {
+      "job": "rep2-negative-value-validation",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1879,
+      "turns": 6,
+      "output_tokens": 2393,
+      "duration_s": 20.1
+    },
+    {
+      "job": "rep3-negative-value-validation",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 3896,
+      "turns": 7,
+      "output_tokens": 2711,
+      "duration_s": 34.2
+    }
+  ],
+  "delete-part-with-history-crash": [
+    {
+      "job": "2026-09-23__13-18-06",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 3651,
+      "turns": 28,
+      "output_tokens": 14115,
+      "duration_s": 158.8
+    },
+    {
+      "job": "rep2-delete-part-with-history-crash",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1757,
+      "turns": 35,
+      "output_tokens": 16121,
+      "duration_s": 157.9
+    },
+    {
+      "job": "rep3-delete-part-with-history-crash",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1776,
+      "turns": 22,
+      "output_tokens": 12458,
+      "duration_s": 121.7
+    }
+  ],
+  "delete-checked-out-equipment-loses-loan": [
+    {
+      "job": "2026-09-23__13-24-43",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 2875,
+      "turns": 23,
+      "output_tokens": 5176,
+      "duration_s": 220.5
+    },
+    {
+      "job": "rep2-delete-checked-out-equipment-loses-loan",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 3993,
+      "turns": 24,
+      "output_tokens": 5953,
+      "duration_s": 95.1
+    },
+    {
+      "job": "rep3-delete-checked-out-equipment-loses-loan",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1852,
+      "turns": 19,
+      "output_tokens": 6032,
+      "duration_s": 76.5
+    }
+  ],
+  "record-maintenance-lock-ordering": [
+    {
+      "job": "2026-09-23__13-32-33",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1391,
+      "turns": 9,
+      "output_tokens": 4867,
+      "duration_s": 45.8
+    },
+    {
+      "job": "rep2-record-maintenance-lock-ordering",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1550,
+      "turns": 9,
+      "output_tokens": 2622,
+      "duration_s": 27.4
+    },
+    {
+      "job": "rep3-record-maintenance-lock-ordering",
+      "reward": 1.0,
+      "errored": false,
+      "ttft_ms": 1391,
+      "turns": 8,
+      "output_tokens": 3360,
+      "duration_s": 32.1
+    }
+  ]
+}
