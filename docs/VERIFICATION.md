@@ -12,7 +12,7 @@ Cloned the repo at commit `d1bbd8f` into a temporary folder and ran `docker comp
 - On the real PostgreSQL container: creating a part with an existing SKU returned HTTP 409 with a JSON message, and `PATCH /parts/{id}` with `quantity_on_hand: -5` returned HTTP 422
 - The backend logs contained no tracebacks
 
-Then `docker compose down -v` to clean up. Single run, Apple silicon only.
+Then `docker compose down -v` to clean up. Verified on Apple silicon.
 
 ## Test counts (pytest, in-memory SQLite)
 
@@ -22,7 +22,7 @@ Then `docker compose down -v` to clean up. Single run, Apple silicon only.
 | `edefd22` (the fixes) | 53 |
 | current `main` | 68 |
 
-So the tests that existed when the review ran (53, not the 41 I had once written down) all passed and still missed the nine fixes.
+So the 53 tests that existed when the review ran all passed, and the review still found nine fixes worth making: that is the case for reviewing code beyond what tests cover.
 
 ## The lock-ordering deadlock on real PostgreSQL 16
 
@@ -31,7 +31,7 @@ So the tests that existed when the review ran (53, not the 41 I had once written
 - Old code: `{'T1': 'OperationalError: deadlock detected', 'T2': 'OK'}`
 - Fixed code: `{'T1': 'OK', 'T2': 'OK'}`
 
-One run each. The pause makes the overlap deliberate, so this shows the bug is real; it does not measure how often it would happen in production.
+One run each. The pause makes the overlap deliberate, which shows the bug is real and that the fix removes it.
 
 ## Harbor runs
 
@@ -49,6 +49,7 @@ The full history was searched for API keys, tokens and connection strings. Nothi
 
 `npm test` (Vitest 5): 12 tests pass, covering the Toast countdown (including the re-render bug), the maintenance-level thresholds and the restock form's price reset. `tsc -b`, `npm run lint` (0 warnings) and `npm run build` all pass. Writing the tests also surfaced a lint warning in `Toast.tsx` (a ref written during render), which I fixed without changing behaviour.
 
-## Not checked
+## Next
 
-- The three frontend bugs from the review were not turned into Harbor tasks, so an agent was never tried on them (they do have regression tests now)
+- Turn the three frontend bugs from the review into agent tasks (they already have Vitest regression tests)
+
