@@ -1,0 +1,20 @@
+##### integrity-error-on-duplicate-sku | buggy
+1 failed, 1 passed in 2.41s
+##### integrity-error-on-duplicate-sku | fixed
+2 passed in 0.68s
+##### negative-value-validation | buggy
+8 failed, 2 passed in 0.27s
+##### negative-value-validation | fixed
+10 passed in 0.19s
+##### delete-part-with-history-crash | buggy
+1 failed, 1 passed in 0.62s
+##### delete-part-with-history-crash | fixed
+2 passed in 0.41s
+##### delete-checked-out-equipment-loses-loan | buggy
+1 failed, 1 passed in 0.69s
+##### delete-checked-out-equipment-loses-loan | fixed
+2 passed in 0.45s
+##### record-maintenance-lock-ordering | buggy
+1 failed, 1 passed in 0.19s
+##### record-maintenance-lock-ordering | fixed
+2 passed in 0.16s
