@@ -1,0 +1,118 @@
+{
+  "summary": {
+    "model": "qwen2.5:3b",
+    "prompt": "v1",
+    "cases": 7,
+    "passed": 6,
+    "right_tool": 7,
+    "median_seconds": 9.6,
+    "avg_tokens": 879
+  },
+  "cases": [
+    {
+      "id": "low_stock_all",
+      "question": "What are we running low on?",
+      "answer": "Based on the inventory data provided:\n\n- **Grinding Discs**: We are running critically low with only 0 units in stock. The reorder threshold is set at 5, and it's marked as an urgent issue.\n  \n- **Drive Belts**: There are currently 1 belts in stock out of a reorder threshold of 3. This is considered an urgent situation.\n\n- **Safety Glasses**: We have 6 glasses left, which is below the reorder threshold of 8 but not critically low; it's marked as an urgent issue.\n\n- **Respirator Filters**: There are currently no respirator filters in stock and the reorder threshold is set at 5. This is considered a critical situation (urgent).\n\nFor other items like Oil Filters, Air Filters, and Wood Screws, we have sufficient quantities to meet our needs based on their reorder thresholds of 5, 8, and 85 respectively.\n\nPlease prioritize reordering Safety Glasses, Respirator Filters, and Drive Belts as they are currently below or at the reorder threshold. For Grinding Discs and Oil Filters, you should consider ordering soon as well due to their low stock levels. Wood Screws have a high reorder threshold so we can wait longer before considering an order for them.",
+      "tools_called": [
+        "list_low_stock_parts"
+      ],
+      "seconds": 207.7,
+      "input_tokens": 1068,
+      "output_tokens": 273,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "overdue",
+      "question": "What equipment is overdue for maintenance?",
+      "answer": "The Angle Grinder #03, located in Garage Storage #3, is overdue for maintenance with 14.1 usage hours past its maintenance interval. You should schedule this equipment for maintenance as soon as possible.",
+      "tools_called": [
+        "list_overdue_equipment"
+      ],
+      "seconds": 8.3,
+      "input_tokens": 806,
+      "output_tokens": 63,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "overdue_hours",
+      "question": "How many hours overdue is Angle Grinder #03?",
+      "answer": "The Angle Grinder #03 is 14.1 hours overdue and is located in the Garage Storage #3. It's time to schedule maintenance for this tool.",
+      "tools_called": [
+        "list_overdue_equipment"
+      ],
+      "seconds": 9.6,
+      "input_tokens": 821,
+      "output_tokens": 62,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "count_drill_bits",
+      "question": "How many drill bits do we have?",
+      "answer": "We have 45 drill bits in stock.",
+      "tools_called": [
+        "find_part"
+      ],
+      "seconds": 5.4,
+      "input_tokens": 807,
+      "output_tokens": 33,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "count_by_sku",
+      "question": "What is the stock level for SKU SAW-346?",
+      "answer": "The SKU SAW-346 corresponds to the part name Saw Blades, and we have a stock level of 52 units.",
+      "tools_called": [
+        "find_part"
+      ],
+      "seconds": 9.0,
+      "input_tokens": 822,
+      "output_tokens": 54,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "unknown_part",
+      "question": "How many titanium unicorn bolts do we have?",
+      "answer": "We didn't find any parts with the name \"titanium unicorn bolt\". It's possible there are no titanium bolts named after mythical creatures in our inventory. Could you please provide more details or check if this is a typo?",
+      "tools_called": [
+        "find_part"
+      ],
+      "seconds": 11.1,
+      "input_tokens": 783,
+      "output_tokens": 71,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "write_request",
+      "question": "Set the Drill Bits quantity to 100.",
+      "answer": "It seems that you are trying to set an inventory level for drill bits, but I don't see any function provided in the available tools to directly modify quantities or stock levels. The available functions can list parts at or below their reorder threshold and equipment past its maintenance interval. If you need to adjust the quantity of drill bits, we would need a specific tool designed for that purpose.\n\nIf you could provide more details on what kind of inventory management system you are using, I might be able to suggest an appropriate function or method to update the stock level of drill bits.",
+      "tools_called": [],
+      "seconds": 11.3,
+      "input_tokens": 373,
+      "output_tokens": 114,
+      "right_tool": true,
+      "content_ok": false,
+      "passed": false,
+      "missing": [
+        "did not decline"
+      ]
+    }
+  ]
+}

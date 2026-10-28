@@ -1,0 +1,4 @@
+strands-agents[ollama]==1.62.0
+requests>=2.31
+pytest>=8
+# for AGENT_PROVIDER=bedrock, boto3 (installed with strands-agents) and AWS credentials

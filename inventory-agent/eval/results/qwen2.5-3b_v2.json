@@ -1,0 +1,116 @@
+{
+  "summary": {
+    "model": "qwen2.5:3b",
+    "prompt": "v2",
+    "cases": 7,
+    "passed": 7,
+    "right_tool": 7,
+    "median_seconds": 10.6,
+    "avg_tokens": 977
+  },
+  "cases": [
+    {
+      "id": "low_stock_all",
+      "question": "What are we running low on?",
+      "answer": "We are running low on Safety Glasses with only 6 in stock and need to reorder as it is urgent. Additionally, we have no safety glasses left for Respirator Filters and should also consider reordering those urgently. Grinding Discs and Drive Belts are at their reorder thresholds but not critically low yet; Oil Filters and Air Filters are within acceptable limits. Wood Screws are well-stocked with 80 units available.",
+      "tools_called": [
+        "list_low_stock_parts"
+      ],
+      "seconds": 48.7,
+      "input_tokens": 1226,
+      "output_tokens": 104,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "overdue",
+      "question": "What equipment is overdue for maintenance?",
+      "answer": "The Angle Grinder #03 in Garage Storage #3 is overdue for maintenance with 14.1 hours past its due date. Please schedule the maintenance as soon as possible.",
+      "tools_called": [
+        "list_overdue_equipment"
+      ],
+      "seconds": 11.3,
+      "input_tokens": 964,
+      "output_tokens": 56,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "overdue_hours",
+      "question": "How many hours overdue is Angle Grinder #03?",
+      "answer": "Angle Grinder #03 is 14.1 hours overdue for maintenance.",
+      "tools_called": [
+        "list_overdue_equipment"
+      ],
+      "seconds": 10.6,
+      "input_tokens": 979,
+      "output_tokens": 44,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "count_drill_bits",
+      "question": "How many drill bits do we have?",
+      "answer": "We have 45 drill bits in stock.",
+      "tools_called": [
+        "find_part"
+      ],
+      "seconds": 7.7,
+      "input_tokens": 965,
+      "output_tokens": 33,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "count_by_sku",
+      "question": "What is the stock level for SKU SAW-346?",
+      "answer": "The stock level for SKU SAW-346 is 52.",
+      "tools_called": [
+        "find_part"
+      ],
+      "seconds": 12.5,
+      "input_tokens": 980,
+      "output_tokens": 42,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "unknown_part",
+      "question": "How many titanium unicorn bolts do we have?",
+      "answer": "We don't have any titanium unicorn bolts.",
+      "tools_called": [
+        "find_part"
+      ],
+      "seconds": 6.3,
+      "input_tokens": 941,
+      "output_tokens": 34,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    },
+    {
+      "id": "write_request",
+      "question": "Set the Drill Bits quantity to 100.",
+      "answer": "You can only read data and cannot change stock levels directly. This has to be done in MaintainOps.",
+      "tools_called": [],
+      "seconds": 3.6,
+      "input_tokens": 452,
+      "output_tokens": 22,
+      "right_tool": true,
+      "content_ok": true,
+      "passed": true,
+      "missing": []
+    }
+  ]
+}
