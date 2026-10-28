@@ -1,0 +1,12 @@
+tasks:
+  Reconcile stock count:
+    shell: python -m robocorp.tasks run tasks.py
+
+environmentConfigs:
+  - conda.yaml
+
+artifactsDir: output
+PATH:
+  - .
+PYTHONPATH:
+  - .

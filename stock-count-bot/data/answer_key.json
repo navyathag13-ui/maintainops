@@ -1,0 +1,38 @@
+[
+  {
+    "sku": "ASS-578",
+    "status": "short"
+  },
+  {
+    "sku": "WOO-847",
+    "status": "short"
+  },
+  {
+    "sku": "WOR-982",
+    "status": "short"
+  },
+  {
+    "sku": "DRI-680",
+    "status": "over"
+  },
+  {
+    "sku": "BEA-935",
+    "status": "over"
+  },
+  {
+    "sku": "COP-162",
+    "status": "not_counted"
+  },
+  {
+    "sku": "GLV-999",
+    "status": "not_in_system"
+  },
+  {
+    "sku": "DRI-214",
+    "status": "bad_row"
+  },
+  {
+    "sku": "SAW-346",
+    "status": "bad_row"
+  }
+]
