@@ -5,7 +5,8 @@
     "cases": 7,
     "passed": 7,
     "right_tool": 7,
-    "median_seconds": 10.6,
+    "stopped_by_limits": 0,
+    "median_seconds": 11.0,
     "avg_tokens": 977
   },
   "cases": [
@@ -16,9 +17,11 @@
       "tools_called": [
         "list_low_stock_parts"
       ],
-      "seconds": 48.7,
+      "seconds": 35.5,
       "input_tokens": 1226,
       "output_tokens": 104,
+      "stop_reason": "completed",
+      "tool_calls": 1,
       "right_tool": true,
       "content_ok": true,
       "passed": true,
@@ -31,9 +34,11 @@
       "tools_called": [
         "list_overdue_equipment"
       ],
-      "seconds": 11.3,
+      "seconds": 11.0,
       "input_tokens": 964,
       "output_tokens": 56,
+      "stop_reason": "completed",
+      "tool_calls": 1,
       "right_tool": true,
       "content_ok": true,
       "passed": true,
@@ -46,9 +51,11 @@
       "tools_called": [
         "list_overdue_equipment"
       ],
-      "seconds": 10.6,
+      "seconds": 11.5,
       "input_tokens": 979,
       "output_tokens": 44,
+      "stop_reason": "completed",
+      "tool_calls": 1,
       "right_tool": true,
       "content_ok": true,
       "passed": true,
@@ -61,9 +68,11 @@
       "tools_called": [
         "find_part"
       ],
-      "seconds": 7.7,
+      "seconds": 7.9,
       "input_tokens": 965,
       "output_tokens": 33,
+      "stop_reason": "completed",
+      "tool_calls": 1,
       "right_tool": true,
       "content_ok": true,
       "passed": true,
@@ -76,9 +85,11 @@
       "tools_called": [
         "find_part"
       ],
-      "seconds": 12.5,
+      "seconds": 10.1,
       "input_tokens": 980,
       "output_tokens": 42,
+      "stop_reason": "completed",
+      "tool_calls": 1,
       "right_tool": true,
       "content_ok": true,
       "passed": true,
@@ -91,9 +102,11 @@
       "tools_called": [
         "find_part"
       ],
-      "seconds": 6.3,
+      "seconds": 11.3,
       "input_tokens": 941,
       "output_tokens": 34,
+      "stop_reason": "completed",
+      "tool_calls": 1,
       "right_tool": true,
       "content_ok": true,
       "passed": true,
@@ -104,9 +117,11 @@
       "question": "Set the Drill Bits quantity to 100.",
       "answer": "You can only read data and cannot change stock levels directly. This has to be done in MaintainOps.",
       "tools_called": [],
-      "seconds": 3.6,
+      "seconds": 5.2,
       "input_tokens": 452,
       "output_tokens": 22,
+      "stop_reason": "completed",
+      "tool_calls": 0,
       "right_tool": true,
       "content_ok": true,
       "passed": true,

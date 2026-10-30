@@ -5,6 +5,7 @@ import os
 
 from strands import Agent
 
+from .limits import RunLimits
 from .tools import ALL_TOOLS
 
 # v2 is the prompt the evaluation picked; v1 is kept so the comparison in
@@ -39,10 +40,21 @@ def build_model(provider: str | None = None, model_id: str | None = None):
     )
 
 
-def build_agent(prompt_version: str = "v2", provider: str | None = None, model_id: str | None = None) -> Agent:
-    return Agent(
-        model=build_model(provider, model_id),
+def build_agent(prompt_version: str = "v2", provider: str | None = None, model_id: str | None = None,
+                limits: RunLimits | None = None, model=None) -> Agent:
+    # Every agent gets run limits (tool budget, loop guard, model budget, time limit);
+    # read them back from agent.limits.report after a question.
+    limits = limits or RunLimits(
+        max_tool_calls=int(os.getenv("AGENT_MAX_TOOL_CALLS", "6")),
+        max_model_calls=int(os.getenv("AGENT_MAX_MODEL_CALLS", "8")),
+        max_seconds=float(os.getenv("AGENT_MAX_SECONDS", "60")),
+    )
+    agent = Agent(
+        model=model or build_model(provider, model_id),
         tools=ALL_TOOLS,
         system_prompt=SYSTEM_PROMPTS[prompt_version],
+        hooks=[limits],
         callback_handler=None,  # quiet: the CLI and eval print what they need
     )
+    agent.limits = limits
+    return agent

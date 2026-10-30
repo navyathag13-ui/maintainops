@@ -79,11 +79,14 @@ def run(model: str, prompt: str) -> dict:
         answer = str(result).strip()
         rows.append({"id": case["id"], "question": case["q"], "answer": answer, "tools_called": tools_called,
                      "seconds": round(seconds, 1), "input_tokens": usage.get("inputTokens", 0),
-                     "output_tokens": usage.get("outputTokens", 0), **score(case, answer, tools_called)})
-        print(f"  {case['id']:<18} {'PASS' if rows[-1]['passed'] else 'FAIL'}  {seconds:6.1f}s  {rows[-1]['missing']}")
+                     "output_tokens": usage.get("outputTokens", 0), "stop_reason": agent.limits.report.stop_reason,
+                     "tool_calls": agent.limits.report.tool_calls, **score(case, answer, tools_called)})
+        print(f"  {case['id']:<18} {'PASS' if rows[-1]['passed'] else 'FAIL'}  {seconds:6.1f}s  "
+              f"{rows[-1]['stop_reason']:<11} {rows[-1]['missing']}")
     summary = {"model": model, "prompt": prompt, "cases": len(rows),
                "passed": sum(r["passed"] for r in rows),
                "right_tool": sum(r["right_tool"] for r in rows),
+               "stopped_by_limits": sum(r["stop_reason"] != "completed" for r in rows),
                "median_seconds": sorted(r["seconds"] for r in rows)[len(rows) // 2],
                "avg_tokens": round(sum(r["input_tokens"] + r["output_tokens"] for r in rows) / len(rows))}
     RESULTS.mkdir(exist_ok=True)
