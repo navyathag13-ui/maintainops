@@ -1,15 +1,46 @@
 # MaintainOps
 
-![Equipment list — color-coded maintenance status](docs/screenshots/equipment-list.png)
+A maintenance platform for a small industrial site, plus the AI agents and automation built on top of it.
 
-## Highlights
+The idea that ties it together: **the MaintainOps API is the single source of truth, and nothing else is allowed to change the data except through it.** The web app, a voice agent, a tool-calling agent and a stock-count bot all go through the same API, with the same validation, row locks and error contract. Anything AI-driven either can only read, or has to get a person's confirmation before it writes. A Harbor benchmark then checks whether an AI coding agent can fix real bugs in the platform itself.
+
+![Equipment list, color-coded by maintenance status](docs/screenshots/equipment-list.png)
+
+## How the parts fit
+
+```
+                       Technician / supervisor
+          speaks          clicks           asks            fills a count sheet
+            |               |               |                      |
+     Voice agent       React web app   Inventory agent      Stock Count Bot
+   (Node.js, LLM tool   (TypeScript)   (Strands Agents,       (Robocorp,
+    calls, read-back                    3 read-only tools,     Excel in,
+    confirmation)                       Docker sandbox)        Excel report out)
+            |               |               |                      |
+            +---------------+-------+-------+----------------------+
+                                    |
+                       MaintainOps REST API (FastAPI)
+               validation, row locks, all-or-nothing stock updates
+                                    |
+                               PostgreSQL
+
+     Harbor benchmark: Claude Code is given 5 real bugs from this API and must fix them
+```
+
+| Part | What it does | Key result | Where |
+|---|---|---|---|
+| **Core platform** | Equipment, parts, maintenance logs, borrowing, wear limits, cost reports and a decision dashboard | 36 endpoints, 68 tests; a bug hunt found 9 issues the earlier 53 tests missed, including a PostgreSQL deadlock | `backend/`, `frontend/` |
+| **Voice agent** | Turns a spoken maintenance log into a record, reading it back and saving only after a spoken "yes" checked in code | Wrong records cut from 3 to 0 over 8 simulated-technician eval runs; also writes to Odoo 17 ERP | [maintainops-voice](https://github.com/navyathag13-ui/maintainops-voice) (own repo) |
+| **Inventory agent** | Answers a supervisor's stock questions from live data with 3 read-only tools, inside a locked-down Docker sandbox | 7 of 7 eval cases with prompt v2 (6 of 7 with v1) | [`inventory-agent/`](inventory-agent/) |
+| **Stock Count Bot** | Compares a hand-filled count sheet with the system and writes an Excel exception report | 9 of 9 planted mistakes caught, no false flags | [`stock-count-bot/`](stock-count-bot/) |
+| **Harbor benchmark** | Rebuilds 5 real bugs as tasks and runs an AI coding agent against them in Docker | Claude Code fixed 15 of 15 runs; every task proven fair first | [`harbor-eval/`](harbor-eval/) |
+
+## Highlights of the core platform
 
 - A complete full-stack app: **FastAPI, PostgreSQL and React**, started with a single `docker compose up` (checked from a clean clone)
 - **68 tests** on the business logic, plus a deliberate bug hunt that found and fixed nine issues the earlier 53 tests had missed, including a lock-ordering deadlock I reproduced on PostgreSQL 16
 - Row-level locking, all-or-nothing stock updates, and a "never a raw stack trace" API error contract
 - Projects, employees, equipment borrowing, wear limits, restock and cost reports, and a dashboard built around what needs a decision today
-- A Harbor evaluation where Claude Code fixed all **5 bugs** I reconstructed from my own review, on all 3 attempts each (15 of 15 runs)
-
 
 ## The problem this replaces
 
