@@ -2,6 +2,8 @@
 
 A maintenance platform for a small industrial site, plus the AI agents and automation built on top of it.
 
+**The problem:** a small site runs maintenance from a shared spreadsheet, so nobody knows which copy is current and parts run out before anyone notices. MaintainOps replaces it with one system that answers the two questions a supervisor asks every morning: *what is overdue, and what are we about to run out of?* The AI parts then test one thing: can agents help technicians log work and check stock **without ever writing a wrong record?** Across the evals below, the answer so far is yes (0 wrong records in every voice run after the first, 9 of 9 count mistakes caught).
+
 The idea that ties it together: **the MaintainOps API is the single source of truth, and nothing else is allowed to change the data except through it.** The web app, a voice agent, a tool-calling agent and a stock-count bot all go through the same API, with the same validation, row locks and error contract. Anything AI-driven either can only read, or has to get a person's confirmation before it writes. A Harbor benchmark then checks whether an AI coding agent can fix real bugs in the platform itself.
 
 ![Equipment list, color-coded by maintenance status](docs/screenshots/equipment-list.png)
