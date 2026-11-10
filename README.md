@@ -35,6 +35,7 @@ The idea that ties it together: **the MaintainOps API is the single source of tr
 | **Voice agent** | Turns a spoken maintenance log into a record, reading it back and saving only after a spoken "yes" checked in code | Wrong records cut from 3 to 0 over 8 simulated-technician eval runs; also writes to Odoo 17 ERP | [maintainops-voice](https://github.com/navyathag13-ui/maintainops-voice) (own repo) |
 | **Inventory agent** | Answers a supervisor's stock questions from live data with 3 read-only tools, inside a locked-down Docker sandbox | 7 of 7 eval cases with prompt v2 (6 of 7 with v1) | [`inventory-agent/`](inventory-agent/) |
 | **Stock Count Bot** | Compares a hand-filled count sheet with the system and writes an Excel exception report | 9 of 9 planted mistakes caught, no false flags | [`stock-count-bot/`](stock-count-bot/) |
+| **Low-stock alerts** | Sends each part that drops below its reorder level to a Power Automate flow that posts it in Microsoft Teams | Each alert is sent once, retried on failure, skipped if the part was restocked first; 12 tests | [`backend/app/notify.py`](backend/app/notify.py), [setup](docs/power-automate-alerts.md) |
 | **Harbor benchmark** | Rebuilds 5 real bugs as tasks and runs an AI coding agent against them in Docker | Claude Code fixed 15 of 15 runs; every task proven fair first | [`harbor-eval/`](harbor-eval/) |
 
 ## Highlights of the core platform
@@ -604,7 +605,7 @@ those by hand against a running server instead; see the commit for exactly what 
 | Backend | Python 3.11 (`python:3.11-slim` image), FastAPI 0.115, Uvicorn 0.30, Pydantic 2.9 |
 | ORM | SQLAlchemy 2.0.34, synchronous, with `SELECT ... FOR UPDATE` row locks where two people could change the same row |
 | Database | PostgreSQL 16 (`postgres:16-alpine`) in Docker Compose, psycopg2 2.9.9 |
-| Backend tests | pytest 8.3, 68 tests, each against a fresh in-memory SQLite database; httpx 0.27 for API-level checks |
+| Backend tests | pytest 8.3, 80 tests (68 on the business logic, 12 on the low-stock notifier), each against a fresh in-memory SQLite database; httpx 0.27 for API-level checks |
 | Frontend | React 19, TypeScript 6, Vite 8, React Router 7, served by nginx in the container (built with Node 20) |
 | Charts | Recharts 2.x (pinned to 2.x, see the notes above) |
 | Frontend tests | Vitest 5, Testing Library and jsdom: 12 tests covering the Toast timer, the maintenance-level rules and the restock form (the three UI bugs from the review) |
@@ -613,6 +614,31 @@ those by hand against a running server instead; see the commit for exactly what 
 | Containers | Docker Compose: Postgres, backend and frontend/nginx |
 | API docs | FastAPI's built-in Swagger UI / OpenAPI |
 | Agent evaluation | Harbor (see the last section), Docker sandboxes, Claude Code as the agent under test |
+
+## Low-stock alerts in Microsoft Teams
+
+When a part crosses its reorder threshold, the app already records a `low_stock_reached` event. `backend/app/notify.py` turns those events into Teams messages through a Power Automate flow's webhook.
+
+**Why a separate job and not a call inside the request.** Using a part runs inside a transaction that holds a row lock on it. Calling Microsoft from there would keep that lock open while waiting on the network, and a failed send would roll back a real stock change. So the event is saved with the stock update, and the notifier picks it up afterwards (the outbox pattern). A `webhook_deliveries` table records what happened to each event:
+
+| Outcome | When |
+|---|---|
+| `sent` | the flow answered 2xx; never sent again |
+| `failed` | it didn't, or the network failed; retried on the next run, up to 5 attempts |
+| `skipped` | the part was restocked before the alert went out, so there is nothing to act on |
+| `stale` | the event is over 24 hours old (the job was down), so it is not worth a late alert |
+
+Each event is committed on its own, so one failed send never blocks or undoes another. The payload has plain fields (part, SKU, on hand, reorder level, critical) for a custom flow plus an Adaptive Card, so Teams' "Post to a channel when a webhook request is received" template shows it without extra mapping.
+
+The webhook URL carries a signature that lets anyone post to the flow, so it only comes from the `MAINTAINOPS_WEBHOOK_URL` environment variable and is never logged. httpx logs every request URL by default; a test fails if the URL shows up in the logs.
+
+```bash
+cd backend
+MAINTAINOPS_WEBHOOK_URL="<flow URL>" python -m app.notify --once        # one pass
+MAINTAINOPS_WEBHOOK_URL="<flow URL>" python -m app.notify --every 300   # every 5 minutes
+```
+
+Verified: 12 tests with a fake webhook, an end-to-end run against a local HTTP receiver, and a live run on 2026-11-10 against a Teams Workflows flow ("Send webhook alerts to a channel" template) on a Microsoft 365 tenant: the flow answered 202, both Power Automate runs succeeded and the Adaptive Card posted in the channel; a second notifier run sent nothing. Setting up the flow is in [`docs/power-automate-alerts.md`](docs/power-automate-alerts.md).
 
 ## What I'd add next
 

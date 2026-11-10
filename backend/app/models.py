@@ -300,3 +300,33 @@ class ActivityEvent(Base):
     employee: Mapped[Optional["Employee"]] = relationship()
     equipment: Mapped[Optional["Equipment"]] = relationship()
     part: Mapped[Optional["Part"]] = relationship()
+
+
+class WebhookDeliveryStatus(str, enum.Enum):
+    SENT = "sent"
+    FAILED = "failed"  # last attempt failed; retried on the next run until MAX_ATTEMPTS
+    SKIPPED = "skipped"  # part was restocked before the alert went out
+    STALE = "stale"  # event too old to be worth alerting on
+
+
+class WebhookDelivery(Base):
+    """One row per low-stock event the notifier has handled (app/notify.py).
+
+    The alert is sent from a separate job, not from inside the request that
+    used the part: an HTTP call inside that transaction would hold the part's
+    row lock while waiting on Microsoft, and a failed send would roll back a
+    real stock change. Instead the event is committed with the stock update,
+    and the job reads events with no SENT/SKIPPED/STALE row (an outbox)."""
+
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("activity_events.id"), nullable=False, unique=True)
+    status: Mapped[WebhookDeliveryStatus] = mapped_column(
+        SAEnum(WebhookDeliveryStatus, name="webhook_delivery_status"), nullable=False
+    )
+    attempts: Mapped[int] = mapped_column(nullable=False, default=0)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    event: Mapped["ActivityEvent"] = relationship()
