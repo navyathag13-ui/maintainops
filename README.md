@@ -640,6 +640,27 @@ MAINTAINOPS_WEBHOOK_URL="<flow URL>" python -m app.notify --every 300   # every 
 
 Verified: 12 tests with a fake webhook, an end-to-end run against a local HTTP receiver, and a live run on 2026-11-10 against a Teams Workflows flow ("Send webhook alerts to a channel" template) on a Microsoft 365 tenant: the flow answered 202, both Power Automate runs succeeded and the Adaptive Card posted in the channel; a second notifier run sent nothing. Setting up the flow is in [`docs/power-automate-alerts.md`](docs/power-automate-alerts.md).
 
+## Load test: a stall that only showed up under concurrency
+
+`loadtest/load_test.py` runs against the real stack (PostgreSQL 16 in Docker, one uvicorn worker) and checks that stock counts stay exact, not just that requests return.
+
+**What it found.** With 50 clients restocking the same part at once, only 35 of 200 requests returned 201. 103 returned a raw 500 (`QueuePool limit of size 5 overflow 10 reached`), 62 timed out or were dropped, and the run took 120 s. Worse, stock rose by 50, so 15 restocks were saved even though the caller never heard back.
+
+**Why.** Each write route locked its row with `SELECT ... FOR UPDATE`, but the commit (and so the lock release) happened in `get_db` after the route returned. In between, FastAPI serializes the response on its worker threadpool. Under load every worker thread was busy, either waiting on that row lock or waiting for a pool connection, so the request holding the lock could not get a thread to finish. Nothing moved until the 30 s pool timeout fired.
+
+**Fix.** Every route that takes a row lock now builds its response first, then commits, so the lock is released before the response is serialized. `get_db` still rolls back on any exception.
+
+**After** (same machine, same script):
+
+| Check | Clients | Result |
+|---|---|---|
+| Reads (list and dashboard endpoints, 30 s) | 50 | 9,057 requests, 300.6 req/s, p95 345 ms, 0 errors |
+| Restocks of one part | 50 | 200 of 200 in 2.3 s; stock rose by exactly 200 |
+| Restocks of one part | 100 | 200 of 200 in 2.6 s; stock rose by exactly 200 |
+| Maintenance logs using the same two parts | 100 | 200 of 200 in 2.0 s; stock fell by exactly 200 |
+
+The script writes to whatever database it points at, so run it against a throwaway one.
+
 ## What I'd add next
 
 - **Auth.** This is currently an open internal tool with no login — fine for a single-site

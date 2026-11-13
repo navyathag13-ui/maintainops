@@ -78,7 +78,11 @@ def update_equipment(equipment_id: int, payload: EquipmentUpdate, db: Session = 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(equipment, field, value)
     db.flush()
-    return _to_read(equipment)
+    # Build the response, then commit, so the row lock is released before
+    # FastAPI serializes the response on its worker threadpool.
+    result = _to_read(equipment)
+    db.commit()
+    return result
 
 
 @router.delete("/{equipment_id}", status_code=204)
@@ -112,7 +116,11 @@ def checkout_equipment(equipment_id: int, payload: EquipmentLoanCreate, db: Sess
         borrower_employee_id=payload.borrower_employee_id,
         expected_return_at=payload.expected_return_at,
     )
-    return EquipmentLoanRead.from_orm_with_equipment_name(loan)
+    # Build the response, then commit, so the row lock is released before
+    # FastAPI serializes the response on its worker threadpool.
+    result = EquipmentLoanRead.from_orm_with_equipment_name(loan)
+    db.commit()
+    return result
 
 
 @router.get("/{equipment_id}/loans", response_model=list[EquipmentLoanRead])

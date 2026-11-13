@@ -32,4 +32,8 @@ def list_equipment_loans(
 @router.post("/{loan_id}/return", response_model=EquipmentLoanRead)
 def return_loan(loan_id: int, db: Session = Depends(get_db)):
     loan = return_equipment(db, loan_id)
-    return EquipmentLoanRead.from_orm_with_equipment_name(loan)
+    # Build the response, then commit, so the row lock is released before
+    # FastAPI serializes the response on its worker threadpool.
+    result = EquipmentLoanRead.from_orm_with_equipment_name(loan)
+    db.commit()
+    return result

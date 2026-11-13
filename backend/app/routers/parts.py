@@ -64,7 +64,11 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(part, field, value)
     db.flush()
-    return _to_read(part)
+    # Build the response, then commit, so the row lock is released before
+    # FastAPI serializes the response on its worker threadpool.
+    result = _to_read(part)
+    db.commit()
+    return result
 
 
 @router.delete("/{part_id}", status_code=204)
@@ -93,7 +97,11 @@ def restock(part_id: int, payload: PartRestockCreate, db: Session = Depends(get_
         supplier=payload.supplier,
         notes=payload.notes,
     )
-    return PartRestockRead.from_orm_with_part_name(restock)
+    # Build the response, then commit, so the row lock is released before
+    # FastAPI serializes the response on its worker threadpool.
+    result = PartRestockRead.from_orm_with_part_name(restock)
+    db.commit()
+    return result
 
 
 @router.get("/{part_id}/restocks", response_model=list[PartRestockRead])

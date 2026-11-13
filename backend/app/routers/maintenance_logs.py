@@ -19,4 +19,8 @@ def create_maintenance_log(payload: MaintenanceLogCreate, db: Session = Depends(
         description=payload.description,
         parts_used=[PartUsageInput(part_id=p.part_id, quantity=p.quantity) for p in payload.parts_used],
     )
-    return MaintenanceLogRead.from_orm_with_parts(log)
+    # Build the response, then commit, so the row lock is released before
+    # FastAPI serializes the response on its worker threadpool.
+    result = MaintenanceLogRead.from_orm_with_parts(log)
+    db.commit()
+    return result

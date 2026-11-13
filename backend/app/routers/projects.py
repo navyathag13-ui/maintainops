@@ -172,4 +172,8 @@ def use_parts(project_id: int, payload: ProjectPartUsageCreate, db: Session = De
         parts_used=[PartUsageInput(part_id=p.part_id, quantity=p.quantity) for p in payload.parts_used],
         note=payload.note,
     )
-    return [ProjectPartUsageRead.from_orm_usage(u) for u in usages]
+    # Build the response, then commit, so the row lock is released before
+    # FastAPI serializes the response on its worker threadpool.
+    result = [ProjectPartUsageRead.from_orm_usage(u) for u in usages]
+    db.commit()
+    return result
